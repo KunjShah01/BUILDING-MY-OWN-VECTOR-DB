@@ -380,31 +380,22 @@ class TestCollectionServiceTenantScoped:
 class TestAdminRequired:
     """Test the admin_required permission check used on tenant management endpoints."""
 
-    @staticmethod
-    def _make_request(api_key_info):
-        """Helper: build a mock request with the given api_key_info on state."""
-        request = MagicMock()
-        # Set up state as a nested object so getattr(request.state, ...) works
-        class State:
-            pass
-        state = State()
-        state.api_key_info = api_key_info
-        request.state = state
-        return request
-
     def test_admin_allows_master_key_permissions(self):
         """Admin permission set in request state should pass."""
         from api.routers.tenants import admin_required
-        request = self._make_request({"success": True, "permissions": "admin"})
+        request = MagicMock(spec=object)
+        request.state.api_key_info = {"success": True, "permissions": "admin"}
+        result = admin_required(request)
+        # async function returns a coroutine — we need to await it
         import asyncio
-        result = asyncio.run(admin_required(request))
-        assert result is True
+        assert asyncio.run(result) is True
 
     def test_admin_rejects_read_write_permissions(self):
-        """read_write permissions should be rejected with 403."""
+        """read_write permissions should be rejected."""
         from api.routers.tenants import admin_required
         from fastapi import HTTPException
-        request = self._make_request({"success": True, "permissions": "read_write"})
+        request = MagicMock(spec=object)
+        request.state.api_key_info = {"success": True, "permissions": "read_write"}
         import asyncio
         with pytest.raises(HTTPException) as exc_info:
             asyncio.run(admin_required(request))
@@ -412,45 +403,44 @@ class TestAdminRequired:
         assert "Admin access required" in str(exc_info.value.detail["message"])
 
     def test_admin_rejects_read_only_permissions(self):
-        """read_only permissions should be rejected with 403."""
+        """read_only permissions should be rejected."""
         from api.routers.tenants import admin_required
         from fastapi import HTTPException
-        request = self._make_request({"success": True, "permissions": "read_only"})
+        request = MagicMock(spec=object)
+        request.state.api_key_info = {"success": True, "permissions": "read_only"}
         import asyncio
         with pytest.raises(HTTPException) as exc_info:
             asyncio.run(admin_required(request))
         assert exc_info.value.status_code == 403
 
-    def test_admin_rejects_missing_permissions_key(self):
-        """api_key_info without a 'permissions' key should be rejected."""
+    def test_admin_rejects_missing_permissions(self):
+        """No api_key_info on state should be rejected."""
         from api.routers.tenants import admin_required
         from fastapi import HTTPException
-        request = self._make_request({"success": True})
+        request = MagicMock(spec=object)
+        request.state.api_key_info = None
         import asyncio
         with pytest.raises(HTTPException) as exc_info:
             asyncio.run(admin_required(request))
         assert exc_info.value.status_code == 403
 
-    def test_admin_rejects_none_api_key_info(self):
-        """api_key_info set to None should be rejected."""
+    def test_admin_rejects_empty_permissions(self):
+        """Empty string permissions should be rejected."""
         from api.routers.tenants import admin_required
         from fastapi import HTTPException
-        request = self._make_request(None)
+        request = MagicMock(spec=object)
+        request.state.api_key_info = {"success": True, "permissions": ""}
         import asyncio
         with pytest.raises(HTTPException) as exc_info:
             asyncio.run(admin_required(request))
         assert exc_info.value.status_code == 403
 
-    def test_admin_rejects_no_state_attribute(self):
-        """Request without api_key_info on state should be rejected."""
+    def test_admin_rejects_no_state(self):
+        """Request without api_key_info at all should be rejected."""
         from api.routers.tenants import admin_required
         from fastapi import HTTPException
-        request = MagicMock()
-        # Don't set state at all — getattr(request, "state", None) would return a MagicMock
-        # So we set state to an object without api_key_info
-        class BareState:
-            pass
-        request.state = BareState()
+        request = MagicMock(spec=object)
+        # Don't set api_key_info at all
         import asyncio
         with pytest.raises(HTTPException) as exc_info:
             asyncio.run(admin_required(request))
@@ -460,7 +450,8 @@ class TestAdminRequired:
         """api_key_info that is not a dict should be rejected."""
         from api.routers.tenants import admin_required
         from fastapi import HTTPException
-        request = self._make_request("not-a-dict")
+        request = MagicMock(spec=object)
+        request.state.api_key_info = "not-a-dict"
         import asyncio
         with pytest.raises(HTTPException) as exc_info:
             asyncio.run(admin_required(request))
