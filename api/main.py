@@ -42,6 +42,8 @@ from services.collection_service import CollectionService
 from services.collection_index_service import CollectionIndexService
 from services.multimodal_service import MultimodalService
 from services.media_store import resolve_media_path
+from services.search_engine_service import SearchEngineService
+from services.gnn_service import GNNService
 
 # Import VectorIndexer API
 try:
@@ -122,6 +124,13 @@ def get_multimodal_service(db: Session = Depends(get_db)) -> MultimodalService:
 
 def get_collection_index_service(db: Session = Depends(get_db)) -> CollectionIndexService:
     return CollectionIndexService(db)
+
+def get_gnn_service(db: Session = Depends(get_db)) -> GNNService:
+    return GNNService(VectorService(db))
+
+def get_search_engine_service(db: Session = Depends(get_db)) -> SearchEngineService:
+    # Reranker can be added here if implemented
+    return SearchEngineService(VectorService(db), gnn_service=GNNService(VectorService(db)))
 
 
 def _parse_metadata_form(metadata: Optional[str]) -> Optional[Dict[str, Any]]:
@@ -523,6 +532,63 @@ async def search_collection_text(
     )
     if not result["success"]:
         raise HTTPException(status_code=_http_error_from_result(result), detail=result)
+    return result
+
+@app.post("/search-engine/query", tags=["Search"])
+async def search_engine_query(
+    request: Request,
+    collection_id: str = Query(...),
+    query: str = Query(...),
+    top_k: int = Query(10, ge=1, le=100),
+    enable_gnn: bool = Query(False),
+    multimodal_service: MultimodalService = Depends(get_multimodal_service),
+    search_engine: SearchEngineService = Depends(get_search_engine_service)
+):
+    """
+    Advanced Search Engine endpoint over the vector database.
+    Includes query intent detection, multi-stage retrieval, fusion, and faceted metadata aggregation.
+    """
+    tenant_id = getattr(request.state, "tenant_id", None)
+    
+    # 1. Embed query (using multimodal service text embedder for simplicity)
+    # Ideally this relies on the specific model for the collection
+    from services.embedding_service import EmbeddingService
+    # Stubbing embedding for the raw string:
+    emb_res = multimodal_service.vector_service.embedding_service.embed_text([query])
+    if not emb_res.get("success") or not emb_res.get("embeddings"):
+        raise HTTPException(status_code=500, detail="Failed to embed query")
+        
+    query_vector = emb_res["embeddings"][0]
+    
+    # 2. Orchestrated Search
+    result = search_engine.search(
+        query=query,
+        query_vector=query_vector,
+        collection_id=collection_id,
+        tenant_id=tenant_id,
+        top_k=top_k,
+        enable_gnn=enable_gnn
+    )
+    return result
+
+@app.post("/gnn/auto-tag", tags=["Index"])
+async def gnn_auto_tag(
+    request: Request,
+    collection_id: str = Query(...),
+    target_field: str = Query(...),
+    gnn_service: GNNService = Depends(get_gnn_service)
+):
+    """
+    Uses Graph Neural Network propagation (Label Propagation) to auto-tag vectors missing a specific metadata field.
+    """
+    tenant_id = getattr(request.state, "tenant_id", None)
+    result = gnn_service.auto_tag_metadata(
+        collection_id=collection_id,
+        target_field=target_field,
+        tenant_id=tenant_id
+    )
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result)
     return result
 
 
@@ -1021,6 +1087,38 @@ async def get_statistics(
         raise HTTPException(status_code=500, detail=result)
     
     return result
+
+# ==================== Observability ====================
+
+from utils.telemetry import get_recent_traces, get_average_latencies
+from utils.index_health import IndexHealthChecker
+
+@app.get("/metrics/search-breakdown", tags=["Stats"])
+async def get_search_metrics():
+    """Detailed breakdown of search latencies (embed vs index vs db)."""
+    return {
+        "success": True,
+        "averages": get_average_latencies(),
+        "recent_traces": get_recent_traces()
+    }
+
+@app.get("/health/index", tags=["Health"])
+async def check_index_health(
+    method: SearchMethod = Query(SearchMethod.HNSW, description="Indexing method"),
+    service: VectorService = Depends(get_vector_service)
+):
+    """Deep structural health check of the active index."""
+    if method.value != "hnsw":
+        return {"success": False, "message": "Health check currently only supports HNSW"}
+        
+    if not service.hnsw_index:
+        return {"success": False, "message": "HNSW index not initialized"}
+        
+    health = IndexHealthChecker.check_health(service.hnsw_index)
+    return {
+        "success": True,
+        "health": health
+    }
 
 # ==================== Playground Support ====================
 

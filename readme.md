@@ -13,7 +13,7 @@ A **production-ready vector database** built from scratch in Python with **FastA
 
 ---
 
-[GitHub](https://github.com/KunjShah95/BUILDING-MY-OWN-VECTOR-DB) · [Docs](docs/) · [API Guide](API_INTEGRATION_GUIDE.md) · [Issues](https://github.com/KunjShah95/BUILDING-MY-OWN-VECTOR-DB/issues)
+[GitHub](https://github.com/KunjShah95/BUILDING-MY-OWN-VECTOR-DB) · [Docs](docs/) · [Roadmap](ROADMAP.md) · [API Guide](API_INTEGRATION_GUIDE.md) · [Issues](https://github.com/KunjShah95/BUILDING-MY-OWN-VECTOR-DB/issues)
 
 ---
 
@@ -31,6 +31,7 @@ A **production-ready vector database** built from scratch in Python with **FastA
 - [Performance Benchmarks](#performance-benchmarks)
 - [Testing](#testing)
 - [Project Layout](#project-layout)
+- [Roadmap](#roadmap)
 - [Contributing](#contributing)
 - [Security](#security)
 
@@ -799,6 +800,13 @@ terraform init && terraform apply
 
 ---
 
+## Roadmap
+
+We are actively evolving this project to be a fully distributed, enterprise-grade vector database. 
+Check out the [ROADMAP.md](ROADMAP.md) to see what's coming next, including Write-Ahead Logging (WAL), Horizontal Sharding, DiskANN, and Change Data Capture (CDC).
+
+---
+
 ## Monitoring & Observability
 
 ### Prometheus Metrics
@@ -1082,8 +1090,13 @@ See [SECURITY.md](SECURITY.md) for the full security policy.
 - [x] Time-series vector support (timestamp/series_id schema + 5 API endpoints)
 - [x] GraphQL API (Strawberry, mounted at `/graphql`)
 - [x] Distributed/partitioned indexes (`utils/partitioned_index.py`)
+### Upcoming (See ROADMAP.md)
+- [ ] Phase 1: Write-Ahead Logging (WAL) and DiskANN (mmap)
+- [ ] Phase 2: Horizontal Sharding and Raft Consensus
+- [ ] Phase 4 & 5: Query Planner and Hardware Acceleration
+- [ ] Phase 6: Graph Neural Networks (GCNs, temporal graphs, link prediction)
+- [ ] Phase 7: Production Search Engine Orchestration (Learning-to-Rank, personalization)
 
----
 
 ## License
 

@@ -19,6 +19,31 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: '4G'
+    
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: vector_db_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: '1G'
     
   # Vector Database API
   vector_api:
@@ -26,6 +51,7 @@ services:
     container_name: vector_db_api
     environment:
       DATABASE_URL: postgresql://vector_user:vector_password@postgres:5432/vector_db
+      REDIS_URL: redis://redis:6379/0
       APP_NAME: Vector Database API
       APP_VERSION: 1.0.0
       DEBUG: false
@@ -37,9 +63,16 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
       - ./index_data:/app/index_data
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: '8G'
 
   # Prometheus (optional monitoring)
   prometheus:
@@ -92,6 +125,7 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:
   prometheus_data:
   grafana_data:
 

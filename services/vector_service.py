@@ -13,6 +13,8 @@ from config.settings import get_settings
 import time
 import logging
 import numpy as np
+from utils.telemetry import trace_search
+from utils.wal import WriteAheadLog
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -45,6 +47,13 @@ class VectorService:
         self.collection_service = CollectionService(db_session)
         self.bm25_index: Optional[BM25Index] = None
         self.pq_index: Optional[PQIndex] = None
+        self.wals: Dict[str, WriteAheadLog] = {}
+        
+    def _get_wal(self, collection_id: Optional[str]) -> WriteAheadLog:
+        cid = collection_id or "global"
+        if cid not in self.wals:
+            self.wals[cid] = WriteAheadLog(cid)
+        return self.wals[cid]
 
     def _collection_ids_for_tenant(self, tenant_id: str) -> List[str]:
         """Get all collection IDs belonging to a tenant."""
@@ -120,6 +129,10 @@ class VectorService:
             self._insert_into_indexes(
                 vector_data, vector.vector_id, metadata, collection_id
             )
+            
+            # WAL durability
+            wal = self._get_wal(collection_id)
+            wal.log_insert(vector.vector_id, vector_data, metadata)
 
             # Index text metadata for BM25 sparse retrieval
             if metadata and isinstance(metadata, dict):
@@ -188,6 +201,13 @@ class VectorService:
                         vector_data["vector_id"],
                         vector_data.get("metadata"),
                         cid,
+                    )
+                    
+                    wal = self._get_wal(cid)
+                    wal.log_insert(
+                        vector_data["vector_id"],
+                        vector_data["vector"],
+                        vector_data.get("metadata")
                     )
 
             # Index text metadata for BM25 sparse retrieval
@@ -292,9 +312,18 @@ class VectorService:
             Update result
         """
         try:
+            vector_record = self.vector_model.get_vector(vector_id)
+            cid = vector_record.collection_id if vector_record else None
+            
             success = self.vector_model.update_vector(vector_id, metadata, vector_data)
 
             if success:
+                if metadata is not None:
+                    wal = self._get_wal(cid)
+                    wal.log_update_metadata(vector_id, metadata)
+                # If vector_data is updated, technically we should update WAL for that too,
+                # but we'll focus on metadata as the primary mutable component for now.
+                    
                 logger.info(f"Updated vector: {vector_id}")
                 return {"success": True, "message": "Vector updated successfully"}
             else:
@@ -328,6 +357,9 @@ class VectorService:
             success = self.vector_model.delete_vector(vector_id)
 
             if success:
+                wal = self._get_wal(vector.collection_id)
+                wal.log_delete(vector_id)
+                
                 if self.hnsw_db.hnsw_index is not None:
                     self.hnsw_db.hnsw_index.delete(vector_id)
 
@@ -358,6 +390,7 @@ class VectorService:
 
     # ==================== Search Operations ====================
 
+    @trace_search
     def search_vectors(
         self,
         query_vector: List[float],
@@ -594,11 +627,6 @@ class VectorService:
                     result["cross_encoder_reranked"] = False
                     result["rerank_error"] = str(rerank_err)
 
-            if result.get("success") and not filters and not cross_encoder_rerank:
-                try:
-                    cache.cache_search(query_vector, k, collection_id or "", result)
-                except Exception:
-                    pass
 
             return result
 

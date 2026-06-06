@@ -215,36 +215,240 @@ class RAGService:
             if not results:
                 return {"success": True, "answer": "No relevant documents found.", "context": [], "query": query}
 
-            context_parts = []
-            for r in results:
-                meta = r.get("metadata", {})
-                chunk_text = meta.get("text", "")
-                source = meta.get("source", "unknown")
-                if chunk_text:
-                    context_parts.append(f"[Source: {source}]\n{chunk_text}")
-
-            context = "\n\n---\n\n".join(context_parts)
-            default_system = (
-                "You are a helpful assistant. Answer the user's question based solely on the provided context. "
-                "If the context doesn't contain enough information, say so. Cite the source document when possible."
-            )
-            messages = [
-                {"role": "system", "content": system_prompt or default_system},
-                {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {query}"},
-            ]
-            answer = openai_chat_completion(
-                messages=messages, model=llm_model, api_key=api_key,
-                max_tokens=max_tokens, temperature=temperature,
-            )
+            context, context_list = self._build_context(results)
+            answer = self._llm_answer(query, context, system_prompt, llm_model, api_key, max_tokens, temperature)
             return {
                 "success": True, "answer": answer, "query": query,
-                "context": [
-                    {"text": r["metadata"].get("text", ""), "source": r["metadata"].get("source", ""),
-                     "distance": r.get("distance", 0)}
-                    for r in results
-                ],
+                "context": context_list,
                 "total_results": len(results),
             }
         except Exception as exc:
             logger.exception("RAG query failed")
             return {"success": False, "message": f"RAG query error: {exc}"}
+
+    # ------------------------------------------------------------------ #
+    #  Advanced RAG strategies                                            #
+    # ------------------------------------------------------------------ #
+
+    def query_with_rewrite(
+        self, collection_id: str, query: str, k: int = 5,
+        llm_model: str = "gpt-4o-mini", api_key: Optional[str] = None,
+        system_prompt: Optional[str] = None, max_tokens: int = 500, temperature: float = 0.3,
+    ) -> Dict[str, Any]:
+        """
+        Query rewriting RAG: ask the LLM to rephrase/expand the query
+        before embedding, so the retrieval step matches more relevant chunks.
+
+        Flow: query -> LLM rewrite -> embed rewritten -> retrieve -> LLM answer
+        """
+        try:
+            rewrite_messages = [
+                {"role": "system", "content": (
+                    "You are a search query optimizer. Rewrite the user's question "
+                    "to be more specific and detailed for semantic search. "
+                    "Output ONLY the rewritten query, nothing else."
+                )},
+                {"role": "user", "content": query},
+            ]
+            rewritten = openai_chat_completion(
+                messages=rewrite_messages, model=llm_model, api_key=api_key,
+                max_tokens=150, temperature=0.3,
+            )
+
+            query_vector = embed_text(rewritten)
+            search_result = self._search_vectors(
+                collection_id=collection_id, query_vector=query_vector, k=k,
+                filters={"content_type": "rag_chunk"},
+            )
+            if not search_result.get("success"):
+                return {"success": False, "message": "Search failed"}
+
+            results = search_result.get("results", [])
+            if not results:
+                return {"success": True, "answer": "No relevant documents found.",
+                        "context": [], "query": query, "rewritten_query": rewritten}
+
+            context, context_list = self._build_context(results)
+            answer = self._llm_answer(query, context, system_prompt, llm_model, api_key, max_tokens, temperature)
+            return {
+                "success": True, "answer": answer, "query": query,
+                "rewritten_query": rewritten,
+                "context": context_list, "total_results": len(results),
+                "strategy": "rewrite",
+            }
+        except Exception as exc:
+            logger.exception("RAG rewrite query failed")
+            return {"success": False, "message": f"RAG rewrite error: {exc}"}
+
+    def query_with_hyde(
+        self, collection_id: str, query: str, k: int = 5,
+        llm_model: str = "gpt-4o-mini", api_key: Optional[str] = None,
+        system_prompt: Optional[str] = None, max_tokens: int = 500, temperature: float = 0.3,
+    ) -> Dict[str, Any]:
+        """
+        Hypothetical Document Embeddings (HyDE) RAG.
+
+        Instead of embedding the raw question, we ask the LLM to generate
+        a hypothetical answer paragraph, embed THAT, and use it for retrieval.
+        The hypothetical answer lives in the same embedding space as the actual
+        documents, so retrieval recall improves 10-30%.
+
+        Flow: query -> LLM hypothetical answer -> embed hypothesis -> retrieve -> LLM answer
+        """
+        try:
+            hyde_messages = [
+                {"role": "system", "content": (
+                    "Write a short, detailed paragraph that answers the following question. "
+                    "Be specific and factual. This will be used for document retrieval, "
+                    "so include key terms and concepts. Output ONLY the paragraph."
+                )},
+                {"role": "user", "content": query},
+            ]
+            hypothetical = openai_chat_completion(
+                messages=hyde_messages, model=llm_model, api_key=api_key,
+                max_tokens=200, temperature=0.5,
+            )
+
+            # Embed the hypothetical answer instead of the raw query
+            hyde_vector = embed_text(hypothetical)
+            search_result = self._search_vectors(
+                collection_id=collection_id, query_vector=hyde_vector, k=k,
+                filters={"content_type": "rag_chunk"},
+            )
+            if not search_result.get("success"):
+                return {"success": False, "message": "Search failed"}
+
+            results = search_result.get("results", [])
+            if not results:
+                return {"success": True, "answer": "No relevant documents found.",
+                        "context": [], "query": query, "hypothetical_answer": hypothetical}
+
+            context, context_list = self._build_context(results)
+            # Use original query for final answer (not the hypothesis)
+            answer = self._llm_answer(query, context, system_prompt, llm_model, api_key, max_tokens, temperature)
+            return {
+                "success": True, "answer": answer, "query": query,
+                "hypothetical_answer": hypothetical,
+                "context": context_list, "total_results": len(results),
+                "strategy": "hyde",
+            }
+        except Exception as exc:
+            logger.exception("RAG HyDE query failed")
+            return {"success": False, "message": f"RAG HyDE error: {exc}"}
+
+    def query_multihop(
+        self, collection_id: str, query: str, k: int = 5, hops: int = 2,
+        llm_model: str = "gpt-4o-mini", api_key: Optional[str] = None,
+        system_prompt: Optional[str] = None, max_tokens: int = 500, temperature: float = 0.3,
+    ) -> Dict[str, Any]:
+        """
+        Multi-hop iterative RAG for complex questions.
+
+        Performs multiple retrieval rounds:
+          1. Retrieve with original query
+          2. Ask LLM what information is still missing
+          3. Retrieve with the refined follow-up query
+          4. Combine all context for final answer
+
+        Args:
+            hops: Number of retrieval iterations (default 2)
+        """
+        try:
+            all_results = []
+            current_query = query
+
+            for hop in range(hops):
+                query_vector = embed_text(current_query)
+                search_result = self._search_vectors(
+                    collection_id=collection_id, query_vector=query_vector, k=k,
+                    filters={"content_type": "rag_chunk"},
+                )
+                if search_result.get("success"):
+                    hop_results = search_result.get("results", [])
+                    all_results.extend(hop_results)
+
+                if hop < hops - 1:
+                    # Ask LLM what's missing before next hop
+                    hop_context, _ = self._build_context(all_results)
+                    refine_messages = [
+                        {"role": "system", "content": (
+                            "Based on the context below, determine what additional "
+                            "information is needed to fully answer the question. "
+                            "Output a focused search query to find the missing information. "
+                            "Output ONLY the search query."
+                        )},
+                        {"role": "user", "content": (
+                            f"Question: {query}\n\nContext so far:\n{hop_context[:2000]}"
+                        )},
+                    ]
+                    current_query = openai_chat_completion(
+                        messages=refine_messages, model=llm_model, api_key=api_key,
+                        max_tokens=100, temperature=0.3,
+                    )
+
+            # Deduplicate results by vector_id
+            seen_ids = set()
+            unique_results = []
+            for r in all_results:
+                vid = r.get("vector_id", "")
+                if vid not in seen_ids:
+                    seen_ids.add(vid)
+                    unique_results.append(r)
+
+            if not unique_results:
+                return {"success": True, "answer": "No relevant documents found.",
+                        "context": [], "query": query}
+
+            context, context_list = self._build_context(unique_results)
+            answer = self._llm_answer(query, context, system_prompt, llm_model, api_key, max_tokens, temperature)
+            return {
+                "success": True, "answer": answer, "query": query,
+                "context": context_list, "total_results": len(unique_results),
+                "hops_performed": hops, "strategy": "multihop",
+            }
+        except Exception as exc:
+            logger.exception("RAG multihop query failed")
+            return {"success": False, "message": f"RAG multihop error: {exc}"}
+
+    # ------------------------------------------------------------------ #
+    #  Internal helpers                                                    #
+    # ------------------------------------------------------------------ #
+
+    def _build_context(self, results: List[Dict]) -> tuple:
+        """
+        Build context string and structured list from search results.
+        Returns (context_string, context_list).
+        """
+        context_parts = []
+        context_list = []
+        for r in results:
+            meta = r.get("metadata", {})
+            chunk_text = meta.get("text", "")
+            source = meta.get("source", "unknown")
+            if chunk_text:
+                context_parts.append(f"[Source: {source}]\n{chunk_text}")
+                context_list.append({
+                    "text": chunk_text, "source": source,
+                    "distance": r.get("distance", 0),
+                })
+        return "\n\n---\n\n".join(context_parts), context_list
+
+    def _llm_answer(self, query: str, context: str,
+                    system_prompt: Optional[str], llm_model: str,
+                    api_key: Optional[str], max_tokens: int,
+                    temperature: float) -> str:
+        """Call LLM with context to produce a grounded answer."""
+        default_system = (
+            "You are a helpful assistant. Answer the user's question based solely "
+            "on the provided context. If the context doesn't contain enough "
+            "information, say so. Cite the source document when possible."
+        )
+        messages = [
+            {"role": "system", "content": system_prompt or default_system},
+            {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {query}"},
+        ]
+        return openai_chat_completion(
+            messages=messages, model=llm_model, api_key=api_key,
+            max_tokens=max_tokens, temperature=temperature,
+        )
+

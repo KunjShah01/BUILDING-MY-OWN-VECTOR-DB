@@ -1,11 +1,14 @@
 import numpy as np
-from typing import List, Dict, Any, Tuple, Optional, Set
+from typing import List, Dict, Any, Tuple, Optional, Set, Callable
 from dataclasses import dataclass, field
 import random
 import heapq
 from collections import defaultdict
 import json
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class Node:
@@ -114,90 +117,262 @@ class HNSWIndex:
     def _search_layer(self, query_vector: np.ndarray, ef: int, 
                      node_id: str, level: int) -> List[Tuple[str, float]]:
         """
-        Best-first search in a single layer
-        
+        Vectorized best-first search in a single layer.
+
+        Instead of computing distances one-at-a-time per neighbor in a Python
+        loop, we gather all unvisited neighbor vectors into a matrix and compute
+        distances with a single NumPy matmul (for cosine) or vectorized L2.
+
         Args:
-            query_vector: Query vector
+            query_vector: Query vector (already normalized for cosine)
             ef: Number of nearest neighbors to maintain
             node_id: Starting node ID
             level: Layer to search in
-            
+
         Returns:
-            List of (node_id, distance) tuples
+            List of (node_id, distance) tuples, sorted by distance
         """
         visited: Set[str] = set()
-        
+
         # Min-heap for candidates (exploration frontier, closest first)
         candidates: List[Tuple[float, str]] = []
         # Max-heap for results (negative distance for max-heap behavior)
         results: List[Tuple[float, str]] = []
-        
+
         if node_id not in self.graph:
             return []
-        
+
         start_node = self.graph[node_id]
         start_distance = self._distance(query_vector, start_node.vector)
         heapq.heappush(candidates, (start_distance, node_id))
         visited.add(node_id)
-        
+
         while candidates:
             distance, current_id = heapq.heappop(candidates)
-            
+
             # Termination: closest remaining candidate is >= farthest result
             if results:
                 farthest_distance = -results[0][0]
                 if distance >= farthest_distance:
                     break
-            
+
             # Add to results
             heapq.heappush(results, (-distance, current_id))
-            
+
             # If we have more than ef results, pop farthest
             if len(results) > ef:
                 heapq.heappop(results)
-            
-            # Explore neighbors
+
+            # ---- Vectorized neighbor exploration ----
             current_node = self.graph[current_id]
-            if level in current_node.neighbors:
-                for neighbor_id in current_node.neighbors[level]:
-                    if neighbor_id not in visited:
-                        visited.add(neighbor_id)
-                        neighbor = self.graph[neighbor_id]
-                        neighbor_dist = self._distance(query_vector, neighbor.vector)
-                        heapq.heappush(candidates, (neighbor_dist, neighbor_id))
-        
+            if level not in current_node.neighbors:
+                continue
+
+            # Collect unvisited neighbors
+            unvisited_ids = [
+                nid for nid in current_node.neighbors[level]
+                if nid not in visited
+            ]
+            if not unvisited_ids:
+                continue
+
+            # Mark visited immediately to avoid duplicates from parallel paths
+            for nid in unvisited_ids:
+                visited.add(nid)
+
+            # Batch distance computation: stack vectors → single matmul
+            neighbor_vecs = np.stack(
+                [self.graph[nid].vector for nid in unvisited_ids]
+            )
+
+            if self.distance_metric == "cosine":
+                # Vectors are pre-normalized at insert time, so
+                # cosine_distance = 1 - dot(v, q)  — no norm needed
+                dists = 1.0 - neighbor_vecs @ query_vector
+            else:
+                # Euclidean: ||a-b||^2 = ||a||^2 + ||b||^2 - 2*a·b
+                vec_sq = np.sum(neighbor_vecs ** 2, axis=1)
+                q_sq = np.dot(query_vector, query_vector)
+                cross = neighbor_vecs @ query_vector
+                dists = np.sqrt(np.maximum(vec_sq + q_sq - 2.0 * cross, 0.0))
+
+            for nid, d in zip(unvisited_ids, dists):
+                heapq.heappush(candidates, (float(d), nid))
+
         # Convert results to sorted list
         sorted_results = [(nid, -neg_dist) for neg_dist, nid in results]
         sorted_results.sort(key=lambda x: x[1])
-        
+
+        return sorted_results
+
+    def _search_layer_filtered(
+        self, query_vector: np.ndarray, ef: int,
+        node_id: str, level: int,
+        metadata_filter: Callable[[Optional[Dict[str, Any]]], bool] = None,
+        max_ef_expansion: int = 4,
+    ) -> List[Tuple[str, float]]:
+        """
+        Filtered search: only candidates passing the metadata predicate
+        enter the result set. The search beam (ef) is dynamically expanded
+        when too many candidates are filtered out, up to ef * max_ef_expansion.
+
+        Args:
+            query_vector: Query vector
+            ef: Base search breadth
+            node_id: Starting node ID
+            level: Layer to search in
+            metadata_filter: Predicate that receives a node's metadata dict
+                             and returns True to include, False to skip.
+            max_ef_expansion: Maximum multiplier for ef when filter is aggressive
+
+        Returns:
+            List of (node_id, distance) tuples that pass the filter
+        """
+        if metadata_filter is None:
+            return self._search_layer(query_vector, ef, node_id, level)
+
+        visited: Set[str] = set()
+        candidates: List[Tuple[float, str]] = []
+        results: List[Tuple[float, str]] = []  # max-heap (neg dist)
+        expanded_ef = ef
+        max_expanded = ef * max_ef_expansion
+
+        if node_id not in self.graph:
+            return []
+
+        start_node = self.graph[node_id]
+        start_distance = self._distance(query_vector, start_node.vector)
+        heapq.heappush(candidates, (start_distance, node_id))
+        visited.add(node_id)
+
+        explored = 0
+        filtered_out = 0
+
+        while candidates:
+            distance, current_id = heapq.heappop(candidates)
+
+            if results:
+                farthest_distance = -results[0][0]
+                if distance >= farthest_distance and len(results) >= expanded_ef:
+                    break
+
+            # Check filter — only add to results if it passes
+            node_meta = self.metadata.get(current_id)
+            if metadata_filter(node_meta):
+                heapq.heappush(results, (-distance, current_id))
+                if len(results) > expanded_ef:
+                    heapq.heappop(results)
+            else:
+                filtered_out += 1
+                # Dynamically expand ef if filter is aggressive
+                if filtered_out > explored * 0.5 and expanded_ef < max_expanded:
+                    expanded_ef = min(expanded_ef * 2, max_expanded)
+
+            explored += 1
+
+            # Vectorized neighbor exploration (same as _search_layer)
+            current_node = self.graph[current_id]
+            if level not in current_node.neighbors:
+                continue
+
+            unvisited_ids = [
+                nid for nid in current_node.neighbors[level]
+                if nid not in visited
+            ]
+            if not unvisited_ids:
+                continue
+
+            for nid in unvisited_ids:
+                visited.add(nid)
+
+            neighbor_vecs = np.stack(
+                [self.graph[nid].vector for nid in unvisited_ids]
+            )
+            if self.distance_metric == "cosine":
+                dists = 1.0 - neighbor_vecs @ query_vector
+            else:
+                vec_sq = np.sum(neighbor_vecs ** 2, axis=1)
+                q_sq = np.dot(query_vector, query_vector)
+                cross = neighbor_vecs @ query_vector
+                dists = np.sqrt(np.maximum(vec_sq + q_sq - 2.0 * cross, 0.0))
+
+            for nid, d in zip(unvisited_ids, dists):
+                heapq.heappush(candidates, (float(d), nid))
+
+        sorted_results = [(nid, -neg_dist) for neg_dist, nid in results]
+        sorted_results.sort(key=lambda x: x[1])
         return sorted_results
     
     def _select_neighbors(self, query_vector: np.ndarray, candidates: List[str], 
                          m: int, level: int) -> List[str]:
         """
-        Select the best m neighbors from candidates
-        
+        Select neighbors using the pruning heuristic from the HNSW paper
+        (Algorithm 4 — "SELECT-NEIGHBORS-HEURISTIC").
+
+        Instead of simply picking the m closest candidates, this heuristic
+        prefers candidates that are closer to the query than to any already-
+        selected neighbor.  This keeps the graph diverse (neighbors point in
+        different directions) and dramatically improves navigability, which
+        translates to higher recall at the same M and ef_construction.
+
         Args:
-            query_vector: Query vector (used for distance calculation)
+            query_vector: Query vector
             candidates: List of candidate node IDs
-            m: Number of neighbors to select
-            level: Layer level
-            
+            m: Maximum number of neighbors to select
+            level: Layer level (unused but kept for API compat)
+
         Returns:
-            List of selected neighbor IDs
+            List of selected neighbor IDs (len <= m)
         """
         if len(candidates) <= m:
             return candidates
-        
-        # Calculate distances for all candidates
-        distances = [(cid, self._distance(query_vector, self.graph[cid].vector)) 
-                    for cid in candidates]
-        
-        # Sort by distance
-        distances.sort(key=lambda x: x[1])
-        
-        # Return closest m
-        return [cid for cid, _ in distances[:m]]
+
+        # Vectorized distance computation for all candidates at once
+        cand_vecs = np.stack([self.graph[cid].vector for cid in candidates])
+        if self.distance_metric == "cosine":
+            dists = 1.0 - cand_vecs @ query_vector
+        else:
+            diff = cand_vecs - query_vector
+            dists = np.sqrt(np.sum(diff ** 2, axis=1))
+
+        # Sort candidates by distance to query (closest first)
+        sorted_indices = np.argsort(dists)
+        sorted_candidates = [(candidates[i], float(dists[i])) for i in sorted_indices]
+
+        selected: List[str] = []
+
+        for cid, dist_to_query in sorted_candidates:
+            if len(selected) >= m:
+                break
+
+            # Pruning heuristic: accept candidate only if it is closer to
+            # the query than to every already-selected neighbor.
+            # This ensures selected neighbors are spread across different
+            # regions of the space rather than clustered together.
+            is_good = True
+            if selected:
+                cand_vec = self.graph[cid].vector
+                for sel_id in selected:
+                    sel_vec = self.graph[sel_id].vector
+                    dist_to_selected = self._distance(cand_vec, sel_vec)
+                    if dist_to_selected < dist_to_query:
+                        is_good = False
+                        break
+
+            if is_good:
+                selected.append(cid)
+
+        # If the heuristic was too aggressive and we have fewer than m,
+        # fill remaining slots with closest unused candidates
+        if len(selected) < m:
+            selected_set = set(selected)
+            for cid, _ in sorted_candidates:
+                if cid not in selected_set:
+                    selected.append(cid)
+                    if len(selected) >= m:
+                        break
+
+        return selected
     
     def _connect_node(self, node_id: str, level: int, 
                      ep_node_id: str = None) -> str:
@@ -327,49 +502,73 @@ class HNSWIndex:
             )
     
     def search(self, query_vector: List[float], k: int = 5, 
-              ef: int = None, level: int = None) -> List[Dict[str, Any]]:
+              ef: int = None, level: int = None,
+              metadata_filter: Callable[[Optional[Dict[str, Any]]], bool] = None,
+              namespace: Optional[str] = None) -> List[Dict[str, Any]]:
         """
-        Search for similar vectors
-        
+        Search for similar vectors with optional metadata filtering and
+        namespace isolation.
+
         Args:
             query_vector: Query vector
             k: Number of results to return
             ef: Search breadth (higher = better recall, slower)
             level: Level to start search from (default: max_level)
-            
+            metadata_filter: Optional predicate applied during graph traversal.
+                Returns True to include a node in results.
+            namespace: If set, only return vectors with matching namespace
+                in their metadata["_namespace"] field.
+
         Returns:
             List of search results with distances and metadata
         """
         query_array = np.array(query_vector, dtype=np.float32)
         query_array = self._normalize_vector(query_array)
-        
+
         if len(self.graph) == 0:
             return []
-        
+
         if ef is None:
             ef = max(k, 10)  # Default ef
-        
+
         if level is None:
             level = self.max_level
-        
+
+        # Build combined filter
+        active_filter = metadata_filter
+        if namespace is not None:
+            ns_filter = lambda meta: (
+                meta is not None and meta.get("_namespace") == namespace
+            )
+            if active_filter is not None:
+                orig_filter = active_filter
+                active_filter = lambda meta: ns_filter(meta) and orig_filter(meta)
+            else:
+                active_filter = ns_filter
+
         # Start from entry point
         ep = self.entry_point
-        
+
         if ep is None:
             return []
-        
-        # Navigate down from top level
+
+        # Navigate down from top level (greedy, ef=1)
         for l in range(self.max_level, 0, -1):
             search_results = self._search_layer(query_array, 1, ep, l)
             if search_results:
                 ep = search_results[0][0]
-        
+
         # Search at level 0 with ef parameter
-        results = self._search_layer(query_array, ef, ep, 0)
-        
+        if active_filter is not None:
+            results = self._search_layer_filtered(
+                query_array, ef, ep, 0, active_filter
+            )
+        else:
+            results = self._search_layer(query_array, ef, ep, 0)
+
         # Get top k results
         top_k = results[:k]
-        
+
         # Build response
         response = []
         for node_id, distance in top_k:
@@ -379,9 +578,9 @@ class HNSWIndex:
                     "distance": distance,
                     "metadata": self.metadata.get(node_id)
                 })
-        
+
         return response
-    
+
     def search_optimized(self, query_vector: List[float], k: int = 5, 
                         ef_search: int = None) -> List[Dict[str, Any]]:
         """
@@ -547,7 +746,7 @@ class HNSWIndex:
             }
             with open(filepath, 'wb') as f:
                 pickle.dump(data, f)
-            print(f"HNSW Index saved to {filepath} (binary)")
+            logger.info(f"HNSW Index saved to {filepath} (binary)")
             return
         
         # Default JSON serialization
@@ -588,8 +787,128 @@ class HNSWIndex:
         with open(filepath, 'w') as f:
             json.dump(index_data, f, indent=2)
         
-        print(f"HNSW Index saved to {filepath}")
-    
+        logger.info(f"HNSW Index saved to {filepath}")
+
+    def save_binary(self, directory: str):
+        """
+        Fast binary persistence using numpy .npy files for vector data and
+        pickle for graph topology.  Achieves sub-second load times even for
+        large indexes (vs multi-second JSON parsing).
+
+        Directory layout:
+            <directory>/
+                config.json       — index parameters
+                vectors.npy       — (N, D) float32 matrix
+                id_map.json       — ordered list of vector IDs (index → ID)
+                topology.pkl      — {node_id: {level: [neighbor_ids]}}
+                metadata.pkl      — {node_id: metadata_dict}
+
+        Args:
+            directory: Directory to save index files into
+        """
+        os.makedirs(directory, exist_ok=True)
+
+        # 1. Config
+        config = {
+            "m": self.m,
+            "m0": self.m0,
+            "ef_construction": self.ef_construction,
+            "level_mult": self.level_mult,
+            "distance_metric": self.distance_metric,
+            "entry_point": self.entry_point,
+            "max_level": self.max_level,
+            "total_inserted": self.total_inserted,
+        }
+        with open(os.path.join(directory, "config.json"), "w") as f:
+            json.dump(config, f)
+
+        # 2. Vectors — contiguous float32 matrix
+        if self.graph:
+            id_list = list(self.graph.keys())
+            vec_matrix = np.stack([self.graph[vid].vector for vid in id_list])
+            np.save(os.path.join(directory, "vectors.npy"), vec_matrix)
+            with open(os.path.join(directory, "id_map.json"), "w") as f:
+                json.dump(id_list, f)
+        else:
+            np.save(os.path.join(directory, "vectors.npy"), np.empty((0, 0)))
+            with open(os.path.join(directory, "id_map.json"), "w") as f:
+                json.dump([], f)
+
+        # 3. Topology — just neighbor dicts, no vector data
+        import pickle
+        topology = {
+            node_id: dict(node.neighbors)
+            for node_id, node in self.graph.items()
+        }
+        with open(os.path.join(directory, "topology.pkl"), "wb") as f:
+            pickle.dump(topology, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+        # 4. Metadata
+        with open(os.path.join(directory, "metadata.pkl"), "wb") as f:
+            pickle.dump(dict(self.metadata), f, protocol=pickle.HIGHEST_PROTOCOL)
+
+        logger.info(
+            f"HNSW Index saved to {directory} (binary, "
+            f"{len(self.graph)} vectors)"
+        )
+
+    def load_binary(self, directory: str) -> 'HNSWIndex':
+        """
+        Fast binary load from save_binary() directory.
+
+        Args:
+            directory: Directory containing index files
+
+        Returns:
+            self
+        """
+        import pickle
+
+        # 1. Config
+        with open(os.path.join(directory, "config.json"), "r") as f:
+            config = json.load(f)
+
+        self.m = config["m"]
+        self.m0 = config["m0"]
+        self.ef_construction = config["ef_construction"]
+        self.level_mult = config["level_mult"]
+        self.distance_metric = config.get("distance_metric", self.distance_metric)
+        self.entry_point = config["entry_point"]
+        self.max_level = config["max_level"]
+        self.total_inserted = config["total_inserted"]
+
+        # 2. Vectors + ID map
+        vec_matrix = np.load(
+            os.path.join(directory, "vectors.npy"), allow_pickle=False
+        )
+        with open(os.path.join(directory, "id_map.json"), "r") as f:
+            id_list = json.load(f)
+
+        # 3. Topology
+        with open(os.path.join(directory, "topology.pkl"), "rb") as f:
+            topology = pickle.load(f)
+
+        # 4. Metadata
+        with open(os.path.join(directory, "metadata.pkl"), "rb") as f:
+            self.metadata = pickle.load(f)
+
+        # Reconstruct graph
+        self.graph.clear()
+        self.vectors.clear()
+
+        for idx, node_id in enumerate(id_list):
+            vector = vec_matrix[idx].astype(np.float32)
+            node = Node(node_id=node_id, vector=vector)
+            node.neighbors = topology.get(node_id, {})
+            self.graph[node_id] = node
+            self.vectors[node_id] = vector
+
+        logger.info(
+            f"HNSW Index loaded from {directory} "
+            f"({len(self.graph)} vectors)"
+        )
+        return self
+
     def load(self, filepath: str) -> 'HNSWIndex':
         """
         Load the index from disk
@@ -600,6 +919,10 @@ class HNSWIndex:
         Returns:
             self
         """
+        # Support loading from binary directory
+        if os.path.isdir(filepath):
+            return self.load_binary(filepath)
+
         # Detect format from file extension or content
         is_binary = filepath.endswith('.pkl') or filepath.endswith('.pickle')
         
@@ -644,7 +967,7 @@ class HNSWIndex:
                 self.vectors[node_id] = node.vector
                 self.metadata[node_id] = node_data.get("metadata")
         
-        print(f"HNSW Index loaded from {filepath}")
+        logger.info(f"HNSW Index loaded from {filepath}")
         
         return self
     
