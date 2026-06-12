@@ -79,17 +79,22 @@ def test_hnsw_delete():
     for vector, vector_id in zip(vectors, vector_ids):
         index.insert(vector, vector_id)
     
-    # Delete a node
+    # Delete a node (soft-delete / tombstone by default)
     deleted = index.delete(vector_ids[5])
     assert deleted == True
-    
-    # Verify deletion
-    assert len(index.graph) == 19
-    assert vector_ids[5] not in index.graph
-    
-    # Try to delete again
+
+    # Tombstoned: node stays in graph for connectivity but is logically gone
+    assert vector_ids[5] in index.deleted
+    assert index.tombstone_count() == 1
+
+    # Try to delete again -> already tombstoned
     deleted_again = index.delete(vector_ids[5])
     assert deleted_again == False
+
+    # Compaction hard-removes the tombstone
+    index.compact()
+    assert len(index.graph) == 19
+    assert vector_ids[5] not in index.graph
 
 def test_hnsw_neighbors():
     """Test HNSW neighbor retrieval"""

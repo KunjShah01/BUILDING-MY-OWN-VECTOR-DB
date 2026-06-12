@@ -66,7 +66,11 @@ class HNSWIndex:
         # Vector storage
         self.vectors: Dict[str, np.ndarray] = {}
         self.metadata: Dict[str, Dict[str, Any]] = {}
-        
+
+        # Tombstones: soft-deleted ids kept in the graph for traversal
+        # until a background compaction hard-removes them
+        self.deleted: set = set()
+
         # Statistics
         self.total_inserted = 0
         self.total_connections_made = 0
@@ -460,6 +464,7 @@ class HNSWIndex:
         self.graph[vector_id] = node
         self.vectors[vector_id] = vector_array
         self.metadata[vector_id] = metadata
+        self.deleted.discard(vector_id)  # re-insert revives a tombstoned id
         self.total_inserted += 1
         
         # Update max level
@@ -569,15 +574,17 @@ class HNSWIndex:
         # Get top k results
         top_k = results[:k]
 
-        # Build response
+        # Build response (over-fetch so tombstones don't shrink result set)
         response = []
-        for node_id, distance in top_k:
-            if node_id in self.graph:
+        for node_id, distance in results:
+            if node_id in self.graph and node_id not in self.deleted:
                 response.append({
                     "vector_id": node_id,
                     "distance": distance,
                     "metadata": self.metadata.get(node_id)
                 })
+            if len(response) >= k:
+                break
 
         return response
 
@@ -596,45 +603,85 @@ class HNSWIndex:
         """
         return self.search(query_vector, k, ef=ef_search)
     
-    def delete(self, vector_id: str) -> bool:
+    def delete(self, vector_id: str, hard: bool = False) -> bool:
         """
-        Delete a vector from the index
-        
+        Delete a vector from the index.
+
+        By default this is a *soft* delete: the node is tombstoned and kept in
+        the graph so traversal connectivity is preserved, but it is excluded
+        from search results. Background compaction (``compact()``) later removes
+        tombstones in bulk and repairs the graph. Pass ``hard=True`` to remove
+        the node immediately (used internally by compaction).
+
         Args:
             vector_id: Vector ID to delete
-            
+            hard: If True, physically remove the node now
+
         Returns:
             True if deleted, False if not found
         """
         if vector_id not in self.graph:
             return False
-        
+
+        if not hard:
+            if vector_id in self.deleted:
+                return False  # already tombstoned
+            self.deleted.add(vector_id)
+            return True
+
         node = self.graph[vector_id]
-        
+
         # Remove from all neighbor lists
         for level, neighbors in node.neighbors.items():
             for neighbor_id in neighbors:
                 if neighbor_id in self.graph:
                     neighbor = self.graph[neighbor_id]
                     if level in neighbor.neighbors:
-                        neighbor.neighbors[level] = [n for n in neighbor.neighbors[level] 
+                        neighbor.neighbors[level] = [n for n in neighbor.neighbors[level]
                                                     if n != vector_id]
-        
+
         # Remove from graph
         del self.graph[vector_id]
         del self.vectors[vector_id]
-        
+
         if vector_id in self.metadata:
             del self.metadata[vector_id]
-        
+        self.deleted.discard(vector_id)
+
         # Update entry point if needed
         if self.entry_point == vector_id:
-            if self.graph:
-                self.entry_point = next(iter(self.graph.keys()))
-            else:
-                self.entry_point = None
-        
+            self.entry_point = next(
+                (nid for nid in self.graph if nid not in self.deleted), None
+            )
+
         return True
+
+    def compact(self) -> Dict[str, Any]:
+        """
+        Background compaction: hard-remove all tombstoned nodes and repair the
+        graph. Returns a summary of how many tombstones were reclaimed.
+
+        Safe to call concurrently with reads only if the caller holds the
+        appropriate lock; the BackgroundCompactor handles this.
+        """
+        reclaimed = 0
+        for vector_id in list(self.deleted):
+            if self.delete(vector_id, hard=True):
+                reclaimed += 1
+
+        # Entry point may have been a tombstone with no live replacement
+        if self.entry_point is None and self.graph:
+            self.entry_point = next(iter(self.graph.keys()))
+
+        return {
+            "reclaimed": reclaimed,
+            "remaining_nodes": len(self.graph),
+            "tombstones": len(self.deleted),
+        }
+
+    def tombstone_count(self) -> int:
+        """Number of soft-deleted nodes awaiting compaction."""
+        return len(self.deleted)
     
     def get_neighbors(self, vector_id: str, level: int = 0) -> List[str]:
         """
@@ -781,9 +828,10 @@ class HNSWIndex:
             "entry_point": self.entry_point,
             "max_level": self.max_level,
             "total_inserted": self.total_inserted,
+            "deleted": list(self.deleted),
             "graph": graph_data
         }
-        
+
         with open(filepath, 'w') as f:
             json.dump(index_data, f, indent=2)
         
@@ -818,6 +866,7 @@ class HNSWIndex:
             "entry_point": self.entry_point,
             "max_level": self.max_level,
             "total_inserted": self.total_inserted,
+            "deleted": list(self.deleted),
         }
         with open(os.path.join(directory, "config.json"), "w") as f:
             json.dump(config, f)
@@ -876,6 +925,7 @@ class HNSWIndex:
         self.entry_point = config["entry_point"]
         self.max_level = config["max_level"]
         self.total_inserted = config["total_inserted"]
+        self.deleted = set(config.get("deleted", []))
 
         # 2. Vectors + ID map
         vec_matrix = np.load(
@@ -942,7 +992,8 @@ class HNSWIndex:
         self.entry_point = data["entry_point"]
         self.max_level = data["max_level"]
         self.total_inserted = data["total_inserted"]
-        
+        self.deleted = set(data.get("deleted", []))
+
         if is_binary:
             for node_id, node_data in data["graph"].items():
                 vector_array = self._normalize_vector(node_data["vector"])
@@ -978,6 +1029,7 @@ class HNSWIndex:
         self.graph.clear()
         self.vectors.clear()
         self.metadata.clear()
+        self.deleted.clear()
         self.entry_point = None
         self.max_level = 0
         self.total_inserted = 0

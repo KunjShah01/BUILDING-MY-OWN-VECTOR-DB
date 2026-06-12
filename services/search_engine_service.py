@@ -16,6 +16,7 @@ import os
 
 from services.cache_service import CacheService
 from utils.bm25_index import BM25Index
+from utils.query_planner import plan_query, QueryPlan
 
 class SearchEngineService:
     def __init__(self, vector_service, gnn_service=None, reranker_service=None):
@@ -162,5 +163,60 @@ class SearchEngineService:
         
         # Cache the result
         self.cache_service.cache_search(query_vector, top_k, collection_id, result)
-        
+
         return result
+
+    def planned_search(
+        self,
+        hybrid_query: str,
+        query_vector: List[float],
+        collection_id: str,
+        tenant_id: Optional[str] = None,
+        top_k: int = 10,
+        field_stats: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Execute a hybrid query (metadata predicates + semantic_match) using the
+        AST cost-based query planner to choose filter-first vs vector-first.
+
+        Args:
+            hybrid_query: e.g. "(category = 'tech' AND price < 100) OR semantic_match(\"laptops\")"
+            query_vector: embedding for the semantic_match leaf
+            field_stats: optional {field: {"distinct": N}} for selectivity refinement
+        """
+        plan: QueryPlan = plan_query(hybrid_query, stats=field_stats, default_k=top_k)
+        pred = plan.predicate_fn
+
+        if plan.strategy in ("vector_only", "vector_first"):
+            # Vector search then (optionally) post-filter by metadata predicate
+            over_fetch = top_k if plan.strategy == "vector_only" else top_k * 5
+            dense = self.vector_service.search_vectors(
+                query_vector, k=over_fetch, collection_id=collection_id, tenant_id=tenant_id
+            ).get("results", [])
+            if pred is not None:
+                dense = [r for r in dense if pred(r.get("metadata"))]
+            results = dense[:top_k]
+
+        elif plan.strategy == "filter_first":
+            # Filter candidates first (cheap, selective), then rank by vector
+            over_fetch = top_k * 10
+            dense = self.vector_service.search_vectors(
+                query_vector, k=over_fetch, collection_id=collection_id, tenant_id=tenant_id
+            ).get("results", [])
+            filtered = [r for r in dense if pred is None or pred(r.get("metadata"))]
+            results = filtered[:top_k]
+
+        else:  # filter_only
+            dense = self.vector_service.search_vectors(
+                query_vector, k=top_k * 10, collection_id=collection_id, tenant_id=tenant_id
+            ).get("results", [])
+            results = [r for r in dense if pred is None or pred(r.get("metadata"))][:top_k]
+
+        return {
+            "success": True,
+            "strategy": plan.strategy,
+            "estimated_selectivity": plan.estimated_selectivity,
+            "plan_reason": plan.reason,
+            "results": results,
+            "total_results": len(results),
+        }

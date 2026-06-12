@@ -11,7 +11,7 @@ def get_index_dir(collection_id: Optional[str] = None) -> str:
 
 def get_hnsw_path(collection_id: Optional[str] = None) -> str:
     if collection_id:
-        return os.path.join(get_index_dir(collection_id), "hnsw_index_data.json")
+        return os.path.join(get_index_dir(collection_id), "hnsw.json")
     return "hnsw_index_data.json"
 
 

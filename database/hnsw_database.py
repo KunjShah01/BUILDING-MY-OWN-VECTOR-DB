@@ -6,6 +6,7 @@ from models.vector_model import VectorModel
 from utils.hnsw_index import HNSWIndex
 from utils.ivf_index import IVFIndex
 from utils.index_paths import ensure_index_dir, get_hnsw_path
+from utils.wal import WriteAheadLog
 import numpy as np
 from datetime import datetime
 import json
@@ -191,6 +192,9 @@ class HNSWVectorDatabase:
             ensure_index_dir(collection_id)
             index.save(path)
 
+            # Index snapshot is durable - WAL entries up to now are obsolete
+            WriteAheadLog(collection_id or "global").checkpoint()
+
             return {
                 "success": True,
                 "message": f"HNSW Index saved to {path}",
@@ -221,6 +225,9 @@ class HNSWVectorDatabase:
             index = HNSWIndex(distance_metric=settings.DEFAULT_DISTANCE_METRIC)
             index.load(path)
 
+            # Crash recovery: re-apply WAL entries written after the snapshot
+            recovery = WriteAheadLog(collection_id or "global").replay(index)
+
             key = self._scope_key(collection_id)
             self._scoped_hnsw[key] = index
             if not collection_id:
@@ -235,6 +242,7 @@ class HNSWVectorDatabase:
                 "stats": stats,
                 "collection_id": collection_id,
                 "index_path": path,
+                "wal_recovery": recovery,
             }
         except Exception as e:
             return {"success": False, "message": f"Error loading HNSW index: {str(e)}"}
