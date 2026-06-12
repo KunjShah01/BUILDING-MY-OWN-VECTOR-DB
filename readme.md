@@ -40,6 +40,10 @@ A **production-ready vector database** built from scratch in Python with **FastA
 ## Highlights
 
 - **9 ANN algorithms** — HNSW, IVF, PQ, Int8, LSH, KD-Tree, VP-Tree, BM25, Hybrid (RRF)
+- **Crash durability** — Write-Ahead Log with fsync + recovery replay; checkpoint/truncate after snapshot
+- **Background compaction** — HNSW soft-delete tombstones reclaimed by a daemon thread
+- **Larger-than-RAM storage** — memory-mapped vector store with dynamic growth and row reclamation
+- **Cost-based query planner** — AST parser for hybrid metadata + `semantic_match` queries with filter-first/vector-first optimization
 - **Hybrid search** — Dense vector + BM25 sparse retrieval fused via Reciprocal Rank Fusion (RRF)
 - **Cross-encoder re-ranking** — Local `cross-encoder/ms-marco-MiniLM-L-6-v2` model + Cohere API fallback
 - **Multimodal ingestion** — Text (Sentence-Transformers), Image (CLIP ViT-B/32), Audio (librosa MFCC w/ chunking)
@@ -66,7 +70,7 @@ A **production-ready vector database** built from scratch in Python with **FastA
 - **Helm chart** — Kubernetes deployment with HPA, PVCs, and probes
 - **Terraform** — AWS and Azure infrastructure templates
 - **CI/CD** — GitHub Actions pipeline with lint, test, and build stages
-- **130+ tests** — Covering API endpoints, index algorithms, services, and utilities
+- **160+ tests** — Covering API endpoints, index algorithms, services, durability (WAL/compaction/mmap), query planner, and utilities
 
 ---
 
@@ -802,8 +806,15 @@ terraform init && terraform apply
 
 ## Roadmap
 
-We are actively evolving this project to be a fully distributed, enterprise-grade vector database. 
-Check out the [ROADMAP.md](ROADMAP.md) to see what's coming next, including Write-Ahead Logging (WAL), Horizontal Sharding, DiskANN, and Change Data Capture (CDC).
+Actively evolving toward a fully distributed, enterprise-grade vector database. See [ROADMAP.md](ROADMAP.md) for the full plan.
+
+**Recently shipped (Phase 1 + Phase 4):**
+- ✅ Write-Ahead Logging with crash-recovery replay (`utils/wal.py`)
+- ✅ Background tombstone compaction for HNSW (`utils/compaction.py`)
+- ✅ Memory-mapped vector storage for larger-than-RAM datasets (`utils/mmap_store.py`)
+- ✅ AST hybrid query parser + cost-based optimizer (`utils/query_planner.py`)
+
+**Coming next:** DiskANN on-disk graphs, horizontal sharding + distributed query aggregation, Raft replication, CDC ingestion (Kafka), and row-level RBAC.
 
 ---
 
@@ -880,6 +891,10 @@ pytest test/ --cov=. --cov-report=html
 | `test/test_auth_middleware.py` | Auth middleware |
 | `test/test_auth_service.py` | API key management |
 | `test/test_comprehensive.py` | End-to-end integration |
+| `test/test_wal_recovery.py` | WAL checkpoint, replay, corruption tolerance |
+| `test/test_compaction.py` | HNSW tombstone soft-delete + background compaction |
+| `test/test_mmap_store.py` | Memory-mapped vector storage |
+| `test/test_query_planner.py` | AST parser + cost-based optimizer |
 
 ---
 
@@ -939,7 +954,11 @@ pytest test/ --cov=. --cov-report=html
 │   ├── auto_reindex.py         # Automatic index rebuild scheduler
 │   └── vector_indexer.py       # Unified indexer with auto-optimization
 ├── utils/                       # Algorithms & utilities
-│   ├── hnsw_index.py           # HNSW graph (Node, search, insert, save/load)
+│   ├── hnsw_index.py           # HNSW graph (Node, search, insert, save/load, tombstone delete/compact)
+│   ├── wal.py                  # Write-Ahead Log: durability, checkpoint, crash-recovery replay
+│   ├── compaction.py           # Background tombstone compaction daemon
+│   ├── mmap_store.py           # Memory-mapped larger-than-RAM vector store
+│   ├── query_planner.py        # AST hybrid query parser + cost-based optimizer
 │   ├── ivf_index.py            # IVF + coarse/fine quantizers
 │   ├── product_quantization.py # PQ index with ADC
 │   ├── int8_index.py           # Int8 quantization (4x compression)
@@ -1080,6 +1099,10 @@ See [SECURITY.md](SECURITY.md) for the full security policy.
 - [x] Python SDK + LangChain integration
 
 ### Completed (Latest)
+- [x] **Write-Ahead Logging (WAL)** with fsync durability + crash-recovery replay (`utils/wal.py`)
+- [x] **Background compaction** — HNSW tombstone soft-delete + daemon reclaim thread (`utils/compaction.py`)
+- [x] **Memory-mapped vector storage** for larger-than-RAM datasets (`utils/mmap_store.py`)
+- [x] **AST query planner + cost-based optimizer** for hybrid queries (`utils/query_planner.py`)
 - [x] Per-collection IVF index persistence (save/load/rebuild + REST endpoints)
 - [x] Cross-modal CLIP text→image search quality tuning (temperature + normalization)
 - [x] Long-audio chunking and segment-level vectors (`chunk_seconds` param)
@@ -1090,12 +1113,17 @@ See [SECURITY.md](SECURITY.md) for the full security policy.
 - [x] Time-series vector support (timestamp/series_id schema + 5 API endpoints)
 - [x] GraphQL API (Strawberry, mounted at `/graphql`)
 - [x] Distributed/partitioned indexes (`utils/partitioned_index.py`)
-### Upcoming (See ROADMAP.md)
-- [ ] Phase 1: Write-Ahead Logging (WAL) and DiskANN (mmap)
-- [ ] Phase 2: Horizontal Sharding and Raft Consensus
-- [ ] Phase 4 & 5: Query Planner and Hardware Acceleration
-- [ ] Phase 6: Graph Neural Networks (GCNs, temporal graphs, link prediction)
-- [ ] Phase 7: Production Search Engine Orchestration (Learning-to-Rank, personalization)
+
+### Upcoming (See [ROADMAP.md](ROADMAP.md))
+- [ ] Phase 1 (finish): DiskANN/Vamana on-disk graph layout; auto-replay all WALs on startup
+- [ ] Phase 2: Horizontal sharding, distributed query aggregation, Raft consensus
+- [ ] Phase 3: CDC ingestion (Kafka/Debezium), dynamic quantization, LlamaIndex + MCP connectors
+- [ ] Phase 4 (finish): Row-level RBAC; query planner exposed over REST with live cardinality stats
+- [ ] Phase 5: SIMD/AVX-512 distance kernels; full GPU index construction
+- [ ] Phase 6: GCN node-embedding training, temporal graph dynamics, link prediction
+- [ ] Phase 7: Learning-to-Rank, personalization, real-time web connectors
+- [ ] Phase 8 (new): Distributed tracing, backup/restore, index auto-tuning
+- [ ] Phase 9 (new): Encryption at rest, audit logging, mTLS, data residency
 
 
 ## License
