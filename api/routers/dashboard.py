@@ -1,6 +1,6 @@
 """Dashboard router - serves UI pages and data endpoints."""
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from pathlib import Path
@@ -12,12 +12,15 @@ from services.collection_service import CollectionService
 router = APIRouter(tags=["Dashboard"])
 
 STATIC_DIR = Path(__file__).parent.parent / "static"
+FRONTEND_DIR = Path(__file__).parent.parent.parent / "frontend" / "dist"
 
 
 def mount_static(app):
     """Mount static files. Called from main.py during integration."""
     if STATIC_DIR.exists():
         app.mount("/dashboard/static", StaticFiles(directory=str(STATIC_DIR)), name="dashboard_static")
+    if FRONTEND_DIR.exists():
+        app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIR / "assets")), name="frontend_assets")
 
 
 @router.get("/api/dashboard/stats")
@@ -76,10 +79,18 @@ async def dashboard_index_info(db: Session = Depends(get_db)):
     }
 
 
+@router.get("/", response_class=HTMLResponse, include_in_schema=False)
+async def landing_page():
+    """Serve the React landing page."""
+    html_path = FRONTEND_DIR / "index.html"
+    if html_path.exists():
+        return HTMLResponse(html_path.read_text(encoding="utf-8"))
+    return HTMLResponse("<h1>Frontend not built. Run: cd frontend && npm run build</h1>")
+
 @router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_page():
     """Serve the main dashboard SPA page."""
     html_path = STATIC_DIR / "index.html"
-    if not html_path.exists():
-        return HTMLResponse("<h1>Dashboard UI not found</h1>")
-    return HTMLResponse(html_path.read_text(encoding="utf-8"))
+    if html_path.exists():
+        return HTMLResponse(html_path.read_text(encoding="utf-8"))
+    return HTMLResponse("<h1>Dashboard UI not found</h1>")
