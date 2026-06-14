@@ -425,7 +425,6 @@ class MemoryListResponse(BaseModel):
 
 class MemorySearchRequest(BaseModel):
     query: str = Field(..., min_length=1, description="Search query text")
-    user_id: str = Field(..., description="User to search memories for")
     categories: Optional[List[str]] = Field(None, description="Filter by categories")
     limit: int = Field(10, ge=1, le=100, description="Max results")
 
@@ -438,7 +437,6 @@ class MemorySearchResponse(BaseModel):
 
 class MemoryChatRequest(BaseModel):
     message: str = Field(..., min_length=1, description="User message")
-    user_id: str = Field(..., description="User ID for memory context")
     history: Optional[List[Dict[str, str]]] = Field(None, description="Chat history")
     llm_model: Optional[str] = Field("gpt-4o-mini", description="LLM model")
     max_tokens: Optional[int] = Field(500, ge=1, le=4096)
@@ -453,7 +451,7 @@ class MemoryChatResponse(BaseModel):
 
 
 class MemoryConsolidateRequest(BaseModel):
-    user_id: str = Field(..., description="User ID to consolidate memories for")
+    """Consolidation is scoped to the authenticated tenant."""
 
 
 class MemoryConsolidateResponse(BaseModel):
@@ -461,3 +459,83 @@ class MemoryConsolidateResponse(BaseModel):
     merged: int
     deleted: int
     message: Optional[str] = None
+
+
+class MemoryStatsResponse(BaseModel):
+    success: bool
+    total: int
+    by_category: Dict[str, int]
+    recent_7d: int
+    recent_30d: int
+
+
+class MemoryBatchDeleteRequest(BaseModel):
+    memory_ids: List[str] = Field(..., min_length=1, description="Memory IDs to delete")
+
+
+class MemoryBatchDeleteResponse(BaseModel):
+    success: bool
+    deleted: int
+    message: Optional[str] = None
+
+
+class SparseVectorCreate(BaseModel):
+    doc_id: str
+    text: str
+    tokens: Optional[Dict[str, float]] = None
+
+class SparseVectorResponse(BaseModel):
+    success: bool
+    sparse_vector: Optional[Dict[str, Any]] = None
+    message: Optional[str] = None
+
+class SparseSearchRequest(BaseModel):
+    query: str
+    k: int = 10
+    method: str = "sparse"
+
+class SparseSearchResponse(BaseModel):
+    success: bool
+    results: List[Dict[str, Any]] = []
+    total: int = 0
+    search_time_ms: float = 0.0
+
+class MultiVectorCreate(BaseModel):
+    group_id: str
+    text: str
+    vectors: Optional[List[List[float]]] = None
+
+class MultiVectorResponse(BaseModel):
+    success: bool
+    group: Optional[Dict[str, Any]] = None
+    message: Optional[str] = None
+
+class MultiVectorSearchRequest(BaseModel):
+    query: str
+    k: int = 10
+
+class MultiVectorSearchResponse(BaseModel):
+    success: bool
+    results: List[Dict[str, Any]] = []
+    total: int = 0
+    search_time_ms: float = 0.0
+
+class NLQueryRequest(BaseModel):
+    query: str
+    limit: int = 10
+
+class NLQueryResponse(BaseModel):
+    success: bool
+    structured_query: Dict[str, Any] = {}
+    results: List[Dict[str, Any]] = []
+    total: int = 0
+
+class IndexTuningRecommendation(BaseModel):
+    collection_id: str
+    current_params: Dict[str, Any] = {}
+    recommended_params: Dict[str, Any] = {}
+    reasoning: str = ""
+
+class IndexTuningResponse(BaseModel):
+    success: bool
+    recommendations: List[IndexTuningRecommendation] = []

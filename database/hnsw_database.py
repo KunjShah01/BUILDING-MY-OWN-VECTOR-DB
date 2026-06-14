@@ -1,4 +1,5 @@
 import os
+import threading
 from typing import List, Dict, Any, Optional, Union
 from sqlalchemy.orm import Session
 from database.schema import Vector, VectorBatch, VectorBatchMapping
@@ -35,6 +36,9 @@ class HNSWVectorDatabase:
         self.hnsw_index_path = get_hnsw_path()
         self.ivf_index_path = "ivf_index_data.json"
 
+        # Concurrency lock — upgrade to RWLock for higher concurrency
+        self._lock = threading.Lock()
+
     def _scope_key(self, collection_id: Optional[str] = None) -> str:
         return collection_id if collection_id else self._GLOBAL_KEY
 
@@ -51,21 +55,22 @@ class HNSWVectorDatabase:
         """
         Insert a vector into the database
         """
-        try:
-            vector = self.vector_model.create_vector(vector_data, metadata, vector_id)
+        with self._lock:
+            try:
+                vector = self.vector_model.create_vector(vector_data, metadata, vector_id)
 
-            # Add to HNSW index if it exists
-            if self.hnsw_index is not None:
-                self.hnsw_index.insert(vector_data, vector.vector_id, metadata)
+                # Add to HNSW index if it exists
+                if self.hnsw_index is not None:
+                    self.hnsw_index.insert(vector_data, vector.vector_id, metadata)
 
-            return {
-                "success": True,
-                "message": "Vector inserted successfully",
-                "vector_id": vector.vector_id,
-                "vector": vector.to_dict(),
-            }
-        except Exception as e:
-            return {"success": False, "message": f"Error inserting vector: {str(e)}"}
+                return {
+                    "success": True,
+                    "message": "Vector inserted successfully",
+                    "vector_id": vector.vector_id,
+                    "vector": vector.to_dict(),
+                }
+            except Exception as e:
+                return {"success": False, "message": f"Error inserting vector: {str(e)}"}
 
     def insert_vector_batch(
         self,
@@ -353,15 +358,16 @@ class HNSWVectorDatabase:
         Returns:
             Search results
         """
-        if method == "hnsw":
-            # If no HNSW index, auto-fallback to brute force
-            if self.hnsw_index is None:
+        with self._lock:
+            if method == "hnsw":
+                # If no HNSW index, auto-fallback to brute force
+                if self.hnsw_index is None:
+                    return self.search_brute_force(query_vector, k)
+                return self.search_hnsw(query_vector, k, ef_search)
+            elif method == "brute":
                 return self.search_brute_force(query_vector, k)
-            return self.search_hnsw(query_vector, k, ef_search)
-        elif method == "brute":
-            return self.search_brute_force(query_vector, k)
-        else:
-            return {"success": False, "message": f"Unknown search method: {method}"}
+            else:
+                return {"success": False, "message": f"Unknown search method: {method}"}
 
     def search_brute_force(
         self,
@@ -445,22 +451,23 @@ class HNSWVectorDatabase:
         Returns:
             Delete result
         """
-        try:
-            success = self.vector_model.delete_vector(vector_id)
+        with self._lock:
+            try:
+                success = self.vector_model.delete_vector(vector_id)
 
-            # Delete from HNSW index
-            if success and self.hnsw_index is not None:
-                self.hnsw_index.delete(vector_id)
+                # Delete from HNSW index
+                if success and self.hnsw_index is not None:
+                    self.hnsw_index.delete(vector_id)
 
-            if success:
-                return {
-                    "success": True,
-                    "message": f"Vector {vector_id} deleted successfully",
-                }
-            else:
-                return {"success": False, "message": "Vector not found"}
-        except Exception as e:
-            return {"success": False, "message": f"Error deleting vector: {str(e)}"}
+                if success:
+                    return {
+                        "success": True,
+                        "message": f"Vector {vector_id} deleted successfully",
+                    }
+                else:
+                    return {"success": False, "message": "Vector not found"}
+            except Exception as e:
+                return {"success": False, "message": f"Error deleting vector: {str(e)}"}
 
     def get_database_stats(self) -> Dict[str, Any]:
         """

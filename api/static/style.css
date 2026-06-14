@@ -40,3 +40,15 @@ header h1 { font-size: 28px; font-weight: 700; }
 .coll-actions input { flex: 1; min-width: 150px; padding: 10px 16px; border: 1px solid #ddd; border-radius: 8px; }
 .coll-actions select { padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; }
 .coll-actions button { padding: 10px 24px; background: #4fc3f7; color: white; border: none; border-radius: 8px; cursor: pointer; }
+
+/* AI Search Tab */
+#nl-query-preview {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 12px;
+  margin-top: 12px;
+  font-size: 13px;
+  max-height: 200px;
+  overflow-y: auto;
+}

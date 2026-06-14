@@ -8,6 +8,7 @@ document.querySelectorAll('.sidebar li').forEach(tab => {
     document.getElementById(`tab-${tabName}`).classList.add('active');
     document.getElementById('page-title').textContent = tab.textContent.trim();
     if (tabName === 'overview') loadOverview();
+    if (tabName === 'memories') loadMemories();
   });
 });
 
@@ -259,6 +260,94 @@ async function loadCollections() {
     }
   } catch(e) { console.error('Load collections error:', e); }
 }
+
+// ==================== Memories Tab ====================
+document.getElementById('mem-search-btn').addEventListener('click', async () => {
+  const query = document.getElementById('mem-search-query').value;
+  if (!query) { loadMemories(); return; }
+  try {
+    const result = await api('/memories/search', 'POST', { query, limit: 50 });
+    renderMemories(result.results || []);
+    document.getElementById('mem-search-query').value = '';
+  } catch(e) { console.error('Memory search error:', e); }
+});
+
+document.getElementById('mem-add-btn').addEventListener('click', async () => {
+  const text = document.getElementById('mem-new-text').value;
+  const cats = document.getElementById('mem-new-cats').value;
+  if (!text) return;
+  try {
+    const categories = cats ? cats.split(',').map(c => c.trim()).filter(Boolean) : [];
+    await api('/memories', 'POST', { text, categories });
+    document.getElementById('mem-new-text').value = '';
+    document.getElementById('mem-new-cats').value = '';
+    loadMemories();
+  } catch(e) { console.error('Memory add error:', e); }
+});
+
+async function loadMemories() {
+  try {
+    const stats = await api('/memories/stats');
+    if (stats.success) {
+      document.getElementById('mem-stat-total').textContent = stats.total.toLocaleString();
+      document.getElementById('mem-stat-categories').textContent = Object.keys(stats.by_category).length;
+      document.getElementById('mem-stat-7d').textContent = stats.recent_7d;
+      document.getElementById('mem-stat-30d').textContent = stats.recent_30d;
+    }
+    const list = await api('/memories?limit=50');
+    renderMemories(list.success ? list.memories : []);
+  } catch(e) { console.error('Load memories error:', e); }
+}
+
+function renderMemories(memories) {
+  const container = document.getElementById('mem-list');
+  if (!memories.length) {
+    container.innerHTML = '<p>No memories yet. Add one above.</p>';
+    return;
+  }
+  container.innerHTML = memories.map(m => `
+    <div class="coll-item">
+      <div>
+        <div class="name">${escapeHtml(m.text)}</div>
+        <div class="meta">${m.memory_id} &middot; ${(m.categories || []).join(', ') || 'uncategorized'} &middot; ${m.created_at || ''}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// ==================== AI Search Tab ====================
+document.getElementById('nl-query-btn').addEventListener('click', async () => {
+  const query = document.getElementById('nl-query-input').value;
+  if (!query) return;
+  const preview = document.getElementById('nl-query-preview');
+  const container = document.getElementById('nl-query-results');
+  preview.style.display = 'block';
+  preview.textContent = 'Analyzing...';
+  container.innerHTML = '';
+  try {
+    const result = await api('/search/nl', 'POST', { query, limit: 10 });
+    if (result.success) {
+      preview.textContent = 'Structured query: ' + JSON.stringify(result.structured_query, null, 2);
+      if (result.results && result.results.length > 0) {
+        container.innerHTML = result.results.map(r =>
+          `<div class="result-item"><div><div class="id">${r.vector_id || r.id || r.memory_id || '--'}</div><div class="meta">${JSON.stringify(r.metadata || r).slice(0, 150)}</div></div><div class="distance">${r.distance ? (r.distance * 10000).toFixed(2) : '--'}</div></div>`
+        ).join('');
+      } else {
+        container.innerHTML = '<p>No results found.</p>';
+      }
+    } else {
+      preview.textContent = 'Error: ' + (result.message || 'Unknown error');
+    }
+  } catch(e) {
+    preview.textContent = 'Error: ' + e.message;
+  }
+});
 
 // ==================== Init ====================
 document.addEventListener('DOMContentLoaded', () => {

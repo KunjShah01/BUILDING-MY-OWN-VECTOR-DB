@@ -327,3 +327,30 @@ class FeedbackEntry(Base):
             "message": self.message,
             "created_at": self.created_at
         }
+
+
+class SparseVector(Base):
+    __tablename__ = "sparse_vectors"
+    id = Column(Integer, primary_key=True, index=True)
+    collection_id = Column(String, nullable=False, index=True)
+    doc_id = Column(String, nullable=False, index=True)
+    sparse_embedding = Column(JSON, nullable=False)
+    text = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        Index("idx_sv_collection", "collection_id"),
+        Index("idx_sv_doc", "collection_id", "doc_id"),
+    )
+
+
+class MultiVectorGroup(Base):
+    __tablename__ = "multi_vector_groups"
+    id = Column(Integer, primary_key=True, index=True)
+    group_id = Column(String, unique=True, nullable=False, index=True)
+    collection_id = Column(String, nullable=False, index=True)
+    text = Column(Text, nullable=True)
+    vectors = Column(JSON, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        Index("idx_mvg_collection", "collection_id"),
+    )

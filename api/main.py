@@ -79,6 +79,12 @@ app = FastAPI(
         {"name": "Vector Indexer", "description": "Unified HNSW/IVF Vector Indexer API"},
         {"name": "Playground", "description": "Frontend playground support"},
         {"name": "Memories", "description": "Agentic memory CRUD, search, chat, and consolidation"},
+        {"name": "Sparse Vectors", "description": "SPLADE sparse vector operations"},
+        {"name": "Multi-Vector", "description": "ColBERT-style multi-vector per document"},
+        {"name": "Natural Language Query", "description": "English-to-structured-query"},
+        {"name": "Streaming Search", "description": "SSE streaming search and webhooks"},
+        {"name": "Cache", "description": "Query result cache management"},
+        {"name": "Tiered Storage", "description": "Hot/warm/cold storage tiers"},
     ]
 )
 
@@ -1336,6 +1342,48 @@ logger.info("Time-series API routes integrated")
 from api.routers.memories import router as memories_router
 app.include_router(memories_router, tags=["Memories"])
 logger.info("Memory API routes integrated")
+
+# ==================== Streaming Search Routes ====================
+
+from api.routers.streaming_search import router as streaming_search_router
+app.include_router(streaming_search_router)
+logger.info("Streaming search routes integrated")
+
+# ==================== Cache Routes ====================
+
+from api.routers.query_cache import router as cache_router
+app.include_router(cache_router)
+logger.info("Cache routes integrated")
+
+# ==================== Tiered Storage Routes ====================
+
+from api.routers.tiered_storage import router as tiered_storage_router
+app.include_router(tiered_storage_router)
+logger.info("Tiered storage routes integrated")
+
+# ==================== Sparse Vectors Routes ====================
+
+from api.routers.sparse_vectors import router as sparse_vectors_router
+app.include_router(sparse_vectors_router)
+logger.info("Sparse vectors API routes integrated")
+
+# ==================== Multi-Vector Routes ====================
+
+from api.routers.multi_vectors import router as multi_vectors_router
+app.include_router(multi_vectors_router)
+logger.info("Multi-vector API routes integrated")
+
+# ==================== NL Query Routes ====================
+
+from api.routers.nl_query import router as nl_query_router
+app.include_router(nl_query_router, tags=["Natural Language Query"])
+logger.info("NL query API routes integrated")
+
+# ==================== Index Tuning Routes ====================
+
+from api.routers.admin_index_tuning import router as index_tuning_router
+app.include_router(index_tuning_router, tags=["Admin"])
+logger.info("Index tuning API routes integrated")
 
 # ==================== GraphQL API ====================
 

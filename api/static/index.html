@@ -15,6 +15,8 @@
     <li data-tab="search">Search</li>
     <li data-tab="similarity">Similarity Explorer</li>
     <li data-tab="collections">Collections</li>
+    <li data-tab="memories">Memories</li>
+    <li data-tab="ai-search">AI Search</li>
   </ul>
 </nav>
 <main class="content">
@@ -79,6 +81,32 @@
       <button id="coll-create-btn">Create</button>
     </div>
     <div id="coll-list" class="coll-list"></div>
+  </section>
+
+  <section id="tab-memories" class="tab">
+    <div class="stats-grid" id="mem-stats-grid">
+      <div class="stat-card"><h3>Total Memories</h3><p id="mem-stat-total">--</p></div>
+      <div class="stat-card"><h3>Categories</h3><p id="mem-stat-categories">--</p></div>
+      <div class="stat-card"><h3>Last 7 Days</h3><p id="mem-stat-7d">--</p></div>
+      <div class="stat-card"><h3>Last 30 Days</h3><p id="mem-stat-30d">--</p></div>
+    </div>
+    <div class="search-box" style="margin-top:1rem">
+      <input type="text" id="mem-search-query" placeholder="Search memories..." />
+      <button id="mem-search-btn">Search</button>
+      <input type="text" id="mem-new-text" placeholder="Add a memory..." style="flex:1;margin-left:0.5rem" />
+      <input type="text" id="mem-new-cats" placeholder="categories (comma)" style="width:180px;margin-left:0.5rem" />
+      <button id="mem-add-btn">Add</button>
+    </div>
+    <div id="mem-list" class="coll-list"></div>
+  </section>
+
+  <section id="tab-ai-search" class="tab">
+    <div class="search-box">
+      <input type="text" id="nl-query-input" placeholder="Ask in plain English, e.g. 'find tech docs about kubernetes from last week'" style="flex:2" />
+      <button id="nl-query-btn">Search</button>
+    </div>
+    <div id="nl-query-preview" class="info-bar" style="font-family:monospace;white-space:pre-wrap;display:none;"></div>
+    <div id="nl-query-results" class="results"></div>
   </section>
 </main>
 <script src="/dashboard/static/app.js"></script>
