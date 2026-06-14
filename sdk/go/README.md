@@ -110,3 +110,17 @@ go build ./vectordb/...
 go vet ./vectordb/...
 go test ./vectordb/...
 ```
+
+## Releasing
+
+The Go module proxy indexes new versions automatically from git tags. To publish a new version:
+
+```bash
+git tag sdk/go/v1.0.0          # ⬅ prefix with sdk/go/ for subdirectory modules
+git push origin sdk/go/v1.0.0
+```
+
+This triggers the [go-publish workflow](/.github/workflows/go-publish.yml) which:
+1. Runs tests as a safety gate
+2. Creates a GitHub Release with auto-generated changelog
+3. The Go module proxy picks up the tag within minutes — users can then `go get` the new version

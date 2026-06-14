@@ -1,0 +1,51 @@
+# Go SDK release configuration
+# The Go module proxy picks up tags prefixed with the subdirectory path:
+#   git tag sdk/go/v1.0.0
+#
+# This config creates a GitHub Release with auto-generated changelog.
+
+project_name: vector-db-go-sdk
+
+before:
+  hooks:
+    - go mod tidy
+    - go vet ./vectordb/...
+
+builds:
+  # Skip binary builds — this is a library, not a CLI tool
+  - skip: true
+
+release:
+  github:
+    owner: KunjShah95
+    name: BUILDING-MY-OWN-VECTOR-DB
+  name_template: "Go SDK {{ .Tag }}"
+  header: |
+    ## Vector DB — Go SDK {{ .Tag }}
+
+    See the [Go SDK README](https://github.com/KunjShah95/BUILDING-MY-OWN-VECTOR-DB/tree/main/sdk/go) for usage.
+
+    ### Changelog
+  footer: |
+    ---
+    _Released by [GoReleaser](https://goreleaser.com)_
+
+changelog:
+  groups:
+    - title: Features
+      regexp: '^feat(\(.*\))?!?:'
+      order: 0
+    - title: Bug fixes
+      regexp: '^fix(\(.*\))?!?:'
+      order: 1
+    - title: Documentation
+      regexp: '^docs(\(.*\))?!?:'
+      order: 2
+    - title: Other changes
+      order: 999
+  filters:
+    exclude:
+      - '^test:'
+      - '^chore:'
+      - '^ci:'
+      - '^Merge branch'

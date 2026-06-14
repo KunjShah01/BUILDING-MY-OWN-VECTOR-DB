@@ -167,7 +167,8 @@ class Query:
         filters: Optional[str] = None,
     ) -> SearchResultType:
         """Search for similar vectors using ANN."""
-        import json, time
+        import json
+        import time
         from services.vector_service import VectorService
 
         svc = VectorService(_get_db(info))
