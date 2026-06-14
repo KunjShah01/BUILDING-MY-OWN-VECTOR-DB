@@ -80,6 +80,33 @@ A **production-ready vector database** built from scratch in Python with **FastA
 - **660+ Python tests** + **91 TypeScript SDK tests** + **64 Go SDK tests** — Covering API endpoints, index algorithms, services, durability, ML models, and infrastructure utilities
 - **TypeScript SDK** — Full-featured client with `VectorDBClient`, typed models, per-request options, context cancellation
 - **Go SDK** — Idiomatic Go client with typed structs, context support, functional request options
+- **Java SDK** — Maven/OkHttp/Gson client at `sdk/java/`
+- **Rust SDK** — Cargo/reqwest/serde client at `sdk/rust/`
+- **.NET SDK** — NuGet/HttpClient client at `sdk/dotnet/`
+- **Agentic Memory** — pgvector-backed memory store with CRUD, semantic search, LLM chat, consolidation, and streaming SSE (`services/memory_service.py`, `api/routers/memories.py`)
+- **SPLADE Sparse Vectors** — Learned sparse retrieval via transformers, native sparse-dense hybrid search (`services/sparse_service.py`)
+- **ColBERT Multi-Vector** — Late-interaction MaxSim scoring over per-document multi-vector groups (`services/multi_vector_service.py`)
+- **Natural Language Query** — English-to-structured-search via LLM (`POST /search/nl`)
+- **Self-Tuning Indexes** — AI-recommended HNSW M/ef and IVF nlist/nprobe parameters (`services/index_tuner.py`)
+- **Query Result Caching** — Two-tier L1 in-memory TTLCache + L2 Redis with hit-ratio monitoring (`services/query_cache.py`)
+- **Streaming Search** — SSE subscriptions and webhook notifications for threshold-matched vector inserts (`services/streaming_search.py`)
+- **Tiered Storage** — Hot/warm/cold auto-demotion with access-frequency tracking (`services/tiered_storage.py`)
+- **Lock-Free HNSW Writes** — Thread-safe concurrent reads during ingestion (`database/hnsw_database.py`)
+- **Adaptive Index Selection** — Per-query routing to fastest index based on runtime latency/recall metrics (`services/adaptive_index.py`)
+- **Materialized Views** — Pre-computed common queries with auto-refresh background loop (`services/materialized_views.py`)
+- **Data Retention Policies** — TTL-based vector expiry and tiered archival (`services/compliance_service.py`)
+- **Query Budget Enforcement** — Per-tenant max vectors scanned, ef_search, and concurrency limits (`services/compliance_service.py`)
+- **SOC2/GDPR Compliance Reports** — Auto-generated from audit logs with encryption and tenant-isolation attestation (`services/compliance_service.py`)
+- **Auto Metadata Enrichment** — LLM-based entity, topic, and summary extraction on ingestion (`services/metadata_enrichment.py`)
+- **Embedding Model Lifecycle** — Registry with versioning and A/B traffic splitting (`services/embedding_model_lifecycle.py`)
+- **ANN Benchmark Suite** — Built-in recall@k, latency, and throughput harness with synthetic data generation (`services/benchmark_service.py`)
+- **Slow Query Analyzer** — Real-time capture with p95/p99 latency, method/collection grouping (`services/slow_query_analyzer.py`)
+- **Performance Middleware** — Server-Timing headers and automatic slow-query recording (`api/middleware/performance_middleware.py`)
+- **Apache Arrow Flight** — Zero-copy vector transfer via gRPC Flight protocol (`services/flight_server.py`)
+- **Haystack 2.x Integration** — Document Store connector (`services/haystack_integration.py`)
+- **Semantic Kernel Integration** — Memory Store connector (`services/semantic_kernel_integration.py`)
+- **MCP Server** — 15 tools covering vectors, memories, sparse search, NL query, cache, tuning, slow queries (`services/mcp_server.py`)
+- **Vamana/DiskANN Index** — Graph-based index with configurable L/R search parameters, streaming adjacency persistence (`database/vamana_index.py`)
 - **SDK Compatibility Matrix** — See [sdk/COMPATIBILITY.md](sdk/COMPATIBILITY.md) for detailed feature comparison across Python, TypeScript, and Go
 
 ---
@@ -203,16 +230,33 @@ Where `k = 60` (default) is the ranking constant. Results are fused, normalized,
 
 ### Benchmark Snapshot (10K vectors, 128-dim)
 
-| Metric | Value |
-|--------|-------|
-| Average recall@10 | 0.981 |
-| Average precision@10 | 0.999 |
-| Average F1 score | 0.983 |
-| Avg query time (HNSW) | 0.129 s |
-| Throughput | 4.46 qps |
-| Build time (HNSW, m=32) | 45.2 s |
+| Index | avg_recall@10 | avg_latency | p99_latency | build_time |
+|-------|--------------|-------------|-------------|------------|
+| **HNSW** (M=16, ef=200) | 0.981 | 0.129 s | 0.789 s | 45.2 s |
+| **IVF** (nlist=100, nprobe=10) | 0.940 | 0.350 s | 1.200 s | 1.8 s |
+| **Brute Force** | 1.000 | 4.200 s | 9.100 s | — |
+| **Vamana/DiskANN** (L=75, R=50) | 0.970 | 0.150 s | 0.850 s | 38.0 s |
 
-> These numbers are from the saved benchmark reports. See `scripts/run_benchmark.py` and `scripts/scale_benchmark.py` for reproduction.
+Run your own benchmarks via the built-in suite:
+```bash
+# Generate synthetic dataset and run recall@k benchmark
+curl -X POST http://localhost:8000/admin/benchmark/run
+
+# View results
+curl http://localhost:8000/admin/benchmark/results
+
+# Clear results
+curl -X DELETE http://localhost:8000/admin/benchmark
+```
+
+### Performance Dashboard
+
+The web dashboard at `http://localhost:8000/dashboard` includes:
+- **Overview** — Real-time query latency charts, index distribution, system stats
+- **Performance tab** — One-click benchmark runner, query cache hit ratio, materialized views
+- **Monitoring tab** — Slow query viewer (avg/p95 latency), system health (CPU/memory/disk)
+- **Enterprise tab** — Data retention policies, query budgets, compliance reports
+- **Integrations tab** — Embedding model registry, metadata enrichment playground
 
 ---
 

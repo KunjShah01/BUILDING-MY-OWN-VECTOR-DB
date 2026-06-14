@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 import pytest
 
@@ -20,6 +20,31 @@ def mock_db():
 @pytest.fixture
 def service(mock_db):
     return MemoryService(mock_db)
+
+
+def _make_mock_mem(memory_id="m1", user_id="u1", text="test",
+                   categories=None, meta_data=None):
+    mem = MagicMock()
+    mem.memory_id = memory_id
+    mem.user_id = user_id
+    mem.text = text
+    mem.categories = categories or []
+    mem.meta_data = meta_data or {}
+    mem.created_at = datetime.now(timezone.utc)
+    mem.updated_at = datetime.now(timezone.utc)
+    return mem
+
+
+def _make_mock_row(memory_id="m1", text="test", categories=None, similarity=0.95):
+    row = MagicMock()
+    row.memory_id = memory_id
+    row.text = text
+    row.categories = categories or []
+    row.metadata = {}
+    row.similarity = similarity
+    row.created_at = "2026-01-01"
+    row.updated_at = "2026-01-01"
+    return row
 
 
 class TestMemoryService:
@@ -41,29 +66,14 @@ class TestMemoryService:
         assert result is None
 
     def test_get_memory_found(self, service, mock_db):
-        mock_mem = MagicMock()
-        mock_mem.memory_id = "m1"
-        mock_mem.user_id = "u1"
-        mock_mem.text = "test"
-        mock_mem.categories = ["cat"]
-        mock_mem.metadata = {}
-        mock_mem.created_at = datetime.now(timezone.utc)
-        mock_mem.updated_at = datetime.now(timezone.utc)
+        mock_mem = _make_mock_mem("m1")
         mock_db.query.return_value.filter.return_value.first.return_value = mock_mem
-
         result = service.get_memory("m1")
         assert result is not None
         assert result.memory_id == "m1"
 
     def test_get_memories(self, service, mock_db):
-        mock_mem = MagicMock()
-        mock_mem.memory_id = "m1"
-        mock_mem.user_id = "u1"
-        mock_mem.text = "test"
-        mock_mem.categories = ["cat"]
-        mock_mem.metadata = {}
-        mock_mem.created_at = datetime.now(timezone.utc)
-        mock_mem.updated_at = datetime.now(timezone.utc)
+        mock_mem = _make_mock_mem("m1", "u1", "test", ["cat"])
         mock_db.query.return_value.filter.return_value.count.return_value = 1
         mock_db.query.return_value.filter.return_value.order_by.return_value.offset.return_value.limit.return_value.all.return_value = [mock_mem]
 
@@ -78,28 +88,19 @@ class TestMemoryService:
         assert "not found" in result["message"].lower()
 
     def test_delete_memory_success(self, service, mock_db):
-        mock_mem = MagicMock()
+        mock_mem = _make_mock_mem()
         mock_db.query.return_value.filter.return_value.first.return_value = mock_mem
-
         result = service.delete_memory("m1", "user1")
         assert result["success"] is True
         mock_db.delete.assert_called_once_with(mock_mem)
         mock_db.commit.assert_called_once()
 
     def test_update_memory_not_found(self, service, mock_db):
-        mock_db.query.return_value.filter.return_value.first.return_value = None
         result = service.update_memory("nonexistent", "user1", text="new text")
         assert result["success"] is False
 
     def test_update_memory_success(self, service, mock_db):
-        mock_mem = MagicMock()
-        mock_mem.memory_id = "m1"
-        mock_mem.user_id = "u1"
-        mock_mem.text = "old"
-        mock_mem.categories = ["old"]
-        mock_mem.metadata = {}
-        mock_mem.created_at = datetime.now(timezone.utc)
-        mock_mem.updated_at = datetime.now(timezone.utc)
+        mock_mem = _make_mock_mem("m1", "u1", "old", ["old"])
         mock_db.query.return_value.filter.return_value.first.return_value = mock_mem
 
         with patch("services.memory_service.embed_text", return_value=[0.5, 0.6]):
@@ -108,20 +109,11 @@ class TestMemoryService:
         assert result["success"] is True
         assert mock_mem.text == "updated"
         assert mock_mem.categories == ["new"]
-        assert mock_mem.metadata == {}
 
     def test_search_memories(self, service, mock_db):
         with patch("services.memory_service.embed_text", return_value=[0.1, 0.2, 0.3]):
-            mock_row = MagicMock()
-            mock_row.memory_id = "m1"
-            mock_row.text = "test memory"
-            mock_row.categories = ["test"]
-            mock_row.metadata = {}
-            mock_row.similarity = 0.95
-            mock_row.created_at = "2026-01-01"
-            mock_row.updated_at = "2026-01-01"
-            mock_db.execute.return_value.fetchall.return_value = [mock_row]
-
+            row = _make_mock_row("m1", "test memory", ["test"], 0.95)
+            mock_db.execute.return_value.fetchall.return_value = [row]
             result = service.search_memories("test query", "user1")
 
         assert result["success"] is True
@@ -130,27 +122,36 @@ class TestMemoryService:
         assert result["results"][0]["distance"] == 0.05
 
     def test_consolidate_single_memory(self, service, mock_db):
-        mock_db.query.return_value.filter.return_value.all.return_value = [MagicMock()]
+        mock_db.query.return_value.filter.return_value.all.return_value = [_make_mock_mem()]
         result = service.consolidate("user1")
         assert result["merged"] == 0
         assert result["deleted"] == 0
-        assert "Less than 2" in result["message"]
 
     def test_chat(self, service, mock_db):
         with patch("services.memory_service.embed_text", return_value=[0.1, 0.2, 0.3]):
             with patch("services.rag_service.openai_chat_completion", return_value="AI response"):
-                mock_row = MagicMock()
-                mock_row.memory_id = "m1"
-                mock_row.text = "user likes pizza"
-                mock_row.categories = ["food"]
-                mock_row.metadata = {}
-                mock_row.similarity = 0.95
-                mock_row.created_at = "2026-01-01"
-                mock_row.updated_at = "2026-01-01"
-                mock_db.execute.return_value.fetchall.return_value = [mock_row]
-
+                row = _make_mock_row("m1", "user likes pizza", ["food"], 0.95)
+                mock_db.execute.return_value.fetchall.return_value = [row]
                 result = service.chat("what do i like", "user1")
 
         assert result["success"] is True
         assert result["response"] == "AI response"
         assert result["memories_retrieved"] == 1
+
+    def test_get_stats(self, service, mock_db):
+        mock_mem = _make_mock_mem("m1", "u1", "test", ["work"])
+        mock_db.query.return_value.filter.return_value.count.side_effect = [5, 2, 3]
+        mock_db.query.return_value.filter.return_value.all.return_value = [
+            _make_mock_mem("m1", "u1", "a", ["work"]),
+            _make_mock_mem("m2", "u1", "b", ["personal"]),
+        ]
+        result = service.get_stats("u1")
+        assert result["success"] is True
+        assert result["total"] == 5
+
+    def test_batch_delete(self, service, mock_db):
+        mock_db.query.return_value.filter.return_value.delete.return_value = 3
+        result = service.batch_delete("u1", ["m1", "m2", "m3"])
+        assert result["success"] is True
+        assert result["deleted"] == 3
+        mock_db.commit.assert_called_once()

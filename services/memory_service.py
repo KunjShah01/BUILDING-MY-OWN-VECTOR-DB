@@ -222,6 +222,93 @@ class MemoryService:
             "memories_retrieved": len(memories),
         }
 
+    def get_stats(self, user_id: str) -> Dict[str, Any]:
+        """Aggregated memory statistics for a user."""
+        total = self.db.query(Memory).filter(Memory.user_id == user_id).count()
+        by_category = {}
+        rows = self.db.query(Memory.categories).filter(Memory.user_id == user_id).all()
+        for row in rows:
+            for cat in (row.categories or []):
+                by_category[cat] = by_category.get(cat, 0) + 1
+        from datetime import datetime, timedelta, timezone
+        now = datetime.now(timezone.utc)
+        recent_7d = self.db.query(Memory).filter(
+            Memory.user_id == user_id,
+            Memory.created_at >= now - timedelta(days=7),
+        ).count()
+        recent_30d = self.db.query(Memory).filter(
+            Memory.user_id == user_id,
+            Memory.created_at >= now - timedelta(days=30),
+        ).count()
+        return {
+            "success": True,
+            "total": total,
+            "by_category": by_category,
+            "recent_7d": recent_7d,
+            "recent_30d": recent_30d,
+        }
+
+    def batch_delete(self, user_id: str, memory_ids: List[str]) -> Dict[str, Any]:
+        """Delete multiple memories at once."""
+        deleted = self.db.query(Memory).filter(
+            Memory.memory_id.in_(memory_ids),
+            Memory.user_id == user_id,
+        ).delete(synchronize_session="fetch")
+        self.db.commit()
+        return {"success": True, "deleted": deleted}
+
+    async def chat_stream(
+        self,
+        message: str,
+        user_id: str,
+        history: Optional[List[Dict[str, str]]] = None,
+        llm_model: str = "gpt-4o-mini",
+        max_tokens: int = 500,
+        temperature: float = 0.3,
+    ):
+        """Memory-augmented chat with SSE streaming."""
+        import asyncio
+        import json as _json
+        from openai import AsyncOpenAI
+        import os
+
+        search_result = self.search_memories(message, user_id, limit=5)
+        memories = search_result.get("results", [])
+
+        context_parts = []
+        for m in memories:
+            cats = ", ".join(m.get("categories", [])) if m.get("categories") else ""
+            cat_tag = f" [{cats}]" if cats else ""
+            context_parts.append(f"- {m['text']}{cat_tag}")
+
+        memory_context = "\n".join(context_parts) if context_parts else "No relevant memories found."
+
+        system_msg = (
+            "You are a helpful assistant with access to the user's personal memories. "
+            "Use the following memories to provide contextually relevant answers. "
+            "If the memories don't contain relevant information, just answer normally.\n\n"
+            f"Relevant memories:\n{memory_context}"
+        )
+
+        yield _json.dumps({"type": "metadata", "memories_retrieved": len(memories)})
+
+        messages = [{"role": "system", "content": system_msg}]
+        if history:
+            messages.extend(history)
+        messages.append({"role": "user", "content": message})
+
+        client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        stream = await client.chat.completions.create(
+            model=llm_model,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            stream=True,
+        )
+        async for chunk in stream:
+            if chunk.choices[0].delta.content:
+                yield _json.dumps({"type": "token", "content": chunk.choices[0].delta.content})
+
     def consolidate(self, user_id: str) -> Dict[str, Any]:
         """LLM-based dedup: find duplicate/mergeable memories and merge them."""
         from services.rag_service import openai_chat_completion
