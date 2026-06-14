@@ -86,6 +86,7 @@ app = FastAPI(
         {"name": "Cache", "description": "Query result cache management"},
         {"name": "Tiered Storage", "description": "Hot/warm/cold storage tiers"},
         {"name": "Enterprise", "description": "Compliance, data retention, query budgets"},
+        {"name": "Monitoring", "description": "Slow query analysis, health details"},
         {"name": "Performance", "description": "Materialized views, adaptive index, benchmarks"},
         {"name": "Integrations", "description": "Metadata enrichment, embedding model lifecycle"},
     ]
@@ -111,6 +112,10 @@ logger = logging.getLogger(__name__)
 # Auth middleware
 from api.middleware.auth_middleware import auth_middleware
 app.middleware("http")(auth_middleware)
+
+# Performance monitoring middleware
+from api.middleware.performance_middleware import performance_middleware
+app.middleware("http")(performance_middleware)
 
 # Prometheus metrics endpoint
 metrics_app = make_asgi_app()
@@ -1399,6 +1404,12 @@ logger.info("Enterprise API routes integrated")
 from api.routers.performance import router as performance_router
 app.include_router(performance_router, tags=["Performance"])
 logger.info("Performance API routes integrated")
+
+# ==================== Monitoring Routes ====================
+
+from api.routers.monitoring import router as monitoring_router
+app.include_router(monitoring_router, tags=["Monitoring"])
+logger.info("Monitoring API routes integrated")
 
 # ==================== Integration Routes ====================
 

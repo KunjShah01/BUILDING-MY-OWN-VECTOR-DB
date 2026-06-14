@@ -17,6 +17,10 @@
     <li data-tab="collections">Collections</li>
     <li data-tab="memories">Memories</li>
     <li data-tab="ai-search">AI Search</li>
+    <li data-tab="enterprise">Enterprise</li>
+    <li data-tab="performance">Performance</li>
+    <li data-tab="monitoring">Monitoring</li>
+    <li data-tab="integrations">Integrations</li>
   </ul>
 </nav>
 <main class="content">
@@ -107,6 +111,62 @@
     </div>
     <div id="nl-query-preview" class="info-bar" style="font-family:monospace;white-space:pre-wrap;display:none;"></div>
     <div id="nl-query-results" class="results"></div>
+  </section>
+
+  <section id="tab-enterprise" class="tab">
+    <div class="stats-grid" id="ent-stats-grid">
+      <div class="stat-card"><h3>Retention Policies</h3><p id="ent-stat-policies">--</p></div>
+      <div class="stat-card"><h3>Query Budgets</h3><p id="ent-stat-budgets">--</p></div>
+      <div class="stat-card"><h3>Compliance Reports</h3><p id="ent-stat-reports">--</p></div>
+    </div>
+    <div class="search-box" style="margin-top:1rem">
+      <input type="text" id="ent-collection-id" placeholder="Collection ID" style="width:200px" />
+      <input type="number" id="ent-ttl-days" placeholder="TTL (days)" style="width:120px" value="365" />
+      <button id="ent-set-retention">Set Retention</button>
+      <button id="ent-gen-report" style="margin-left:8px">Generate SOC2 Report</button>
+    </div>
+    <div id="ent-results" class="coll-list" style="margin-top:1rem"></div>
+  </section>
+
+  <section id="tab-performance" class="tab">
+    <div class="stats-grid">
+      <div class="stat-card"><h3>Cache Hits</h3><p id="perf-cache-hits">--</p></div>
+      <div class="stat-card"><h3>Cache Ratio</h3><p id="perf-cache-ratio">--</p></div>
+      <div class="stat-card"><h3>Views</h3><p id="perf-views">--</p></div>
+      <div class="stat-card"><h3>Benchmarks</h3><p id="perf-benchmarks">--</p></div>
+    </div>
+    <div class="search-box" style="margin-top:1rem">
+      <button id="perf-run-benchmark">Run Benchmark</button>
+      <button id="perf-flush-cache" style="margin-left:8px">Flush Cache</button>
+      <button id="perf-refresh" style="margin-left:8px">Refresh All</button>
+    </div>
+    <div id="perf-results" class="coll-list" style="margin-top:1rem"></div>
+  </section>
+
+  <section id="tab-monitoring" class="tab">
+    <div class="stats-grid">
+      <div class="stat-card"><h3>Slow Queries</h3><p id="mon-slow-total">--</p></div>
+      <div class="stat-card"><h3>Avg Latency</h3><p id="mon-avg-latency">--</p></div>
+      <div class="stat-card"><h3>P95 Latency</h3><p id="mon-p95-latency">--</p></div>
+      <div class="stat-card"><h3>CPU</h3><p id="mon-cpu">--</p></div>
+    </div>
+    <div class="search-box" style="margin-top:1rem">
+      <button id="mon-refresh">Refresh</button>
+    </div>
+    <div id="mon-results" class="coll-list" style="margin-top:1rem"></div>
+  </section>
+
+  <section id="tab-integrations" class="tab">
+    <div class="stats-grid">
+      <div class="stat-card"><h3>Embedding Models</h3><p id="int-models">--</p></div>
+      <div class="stat-card"><h3>Active Model</h3><p id="int-active-model">--</p></div>
+    </div>
+    <div class="search-box" style="margin-top:1rem">
+      <input type="text" id="int-enrich-text" placeholder="Enter text to enrich..." style="flex:1" />
+      <button id="int-enrich-btn">Enrich</button>
+    </div>
+    <div id="int-enrich-result" class="info-bar" style="font-family:monospace;white-space:pre-wrap;display:none;margin-top:1rem"></div>
+    <div id="int-models-list" class="coll-list" style="margin-top:1rem"></div>
   </section>
 </main>
 <script src="/dashboard/static/app.js"></script>

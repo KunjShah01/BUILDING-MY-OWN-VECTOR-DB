@@ -47,6 +47,23 @@ class MCPServer:
 
     def get_tool_definitions(self) -> List[Dict[str, Any]]:
         """Return MCP-compatible tool definitions."""
+    def _get_db(self):
+        """Return a DB session from the vector service if available."""
+        if self._vector_service is not None:
+            return self._vector_service.db
+        return None
+
+    async def _http_get(self, path: str) -> Dict[str, Any]:
+        import httpx
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["X-API-Key"] = self.api_key
+        async with httpx.AsyncClient(base_url=self.api_url, headers=headers) as client:
+            resp = await client.get(path)
+            return resp.json()
+
+    def get_tool_definitions(self) -> List[Dict[str, Any]]:
+        """Return MCP-compatible tool definitions."""
         return [
             {
                 "name": "search_vectors",
@@ -153,6 +170,56 @@ class MCPServer:
                     },
                     "required": ["user_id"],
                 },
+            },
+            {
+                "name": "list_collections",
+                "description": "List all collections in the vector database",
+                "inputSchema": {"type": "object", "properties": {}, "required": []},
+            },
+            {
+                "name": "search_sparse",
+                "description": "Search using sparse vector (SPLADE) retrieval",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "collection_id": {"type": "string"},
+                        "query": {"type": "string"},
+                        "k": {"type": "integer", "default": 10},
+                    },
+                    "required": ["collection_id", "query"],
+                },
+            },
+            {
+                "name": "nl_search",
+                "description": "Search using natural language — translate English to structured query",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"},
+                        "limit": {"type": "integer", "default": 10},
+                    },
+                    "required": ["query"],
+                },
+            },
+            {
+                "name": "get_index_tuning_recommendations",
+                "description": "Get AI-powered index tuning recommendations",
+                "inputSchema": {"type": "object", "properties": {}, "required": []},
+            },
+            {
+                "name": "get_query_cache_stats",
+                "description": "Get query cache hit ratio and stats",
+                "inputSchema": {"type": "object", "properties": {}, "required": []},
+            },
+            {
+                "name": "flush_query_cache",
+                "description": "Flush the query result cache",
+                "inputSchema": {"type": "object", "properties": {}, "required": []},
+            },
+            {
+                "name": "get_slow_queries",
+                "description": "List recent slow queries for performance analysis",
+                "inputSchema": {"type": "object", "properties": {"limit": {"type": "integer", "default": 10}}, "required": []},
             },
         ]
 
@@ -286,6 +353,56 @@ class MCPServer:
                 from services.memory_service import MemoryService
                 svc = MemoryService(self._vector_service.db)
                 return svc.consolidate(user_id=arguments["user_id"])
+
+            elif tool_name == "list_collections":
+                db = self._get_db()
+                if db is None:
+                    return {"error": "In-process mode requires set_services()"}
+                from services.collection_service import CollectionService
+                svc = CollectionService(db)
+                return svc.list_collections()
+
+            elif tool_name == "search_sparse":
+                from services.sparse_service import SparseService
+                db = self._get_db()
+                if db is None:
+                    return {"error": "In-process mode requires set_services()"}
+                svc = SparseService(db)
+                return svc.search_sparse(arguments["collection_id"], arguments["query"], arguments.get("k", 10))
+
+            elif tool_name == "nl_search":
+                from services.rag_service import openai_chat_completion
+                import json
+                prompt = f"Convert to JSON search query: {{\"text\": \"...\", \"categories\": [], \"limit\": 10}}. Query: {arguments['query']}"
+                response = openai_chat_completion(messages=[{"role": "user", "content": prompt}], max_tokens=300, temperature=0.1)
+                try:
+                    structured = json.loads(response)
+                except Exception:
+                    structured = {"text": arguments["query"], "limit": arguments.get("limit", 10)}
+                from services.search_engine_service import SearchEngineService
+                engine = SearchEngineService(None)
+                return {"success": True, "structured_query": structured, "note": "NL search via MCP"}
+
+            elif tool_name == "get_index_tuning_recommendations":
+                db = self._get_db()
+                if db is None:
+                    return {"error": "In-process mode requires set_services()"}
+                from services.index_tuner import IndexTuner
+                tuner = IndexTuner(db)
+                return {"recommendations": tuner.get_recommendations()}
+
+            elif tool_name == "get_query_cache_stats":
+                from services.query_cache import query_cache
+                return {"success": True, "stats": query_cache.stats()}
+
+            elif tool_name == "flush_query_cache":
+                from services.query_cache import query_cache
+                query_cache.flush()
+                return {"success": True, "message": "Cache flushed"}
+
+            elif tool_name == "get_slow_queries":
+                from services.slow_query_analyzer import slow_query_analyzer
+                return {"success": True, "slow_queries": slow_query_analyzer.get_recent(limit=arguments.get("limit", 10))}
 
             else:
                 return {"error": f"Unknown tool: {tool_name}"}

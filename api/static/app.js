@@ -9,6 +9,10 @@ document.querySelectorAll('.sidebar li').forEach(tab => {
     document.getElementById('page-title').textContent = tab.textContent.trim();
     if (tabName === 'overview') loadOverview();
     if (tabName === 'memories') loadMemories();
+    if (tabName === 'enterprise') loadEnterprise();
+    if (tabName === 'performance') loadPerformance();
+    if (tabName === 'monitoring') loadMonitoring();
+    if (tabName === 'integrations') loadIntegrations();
   });
 });
 
@@ -348,6 +352,137 @@ document.getElementById('nl-query-btn').addEventListener('click', async () => {
     preview.textContent = 'Error: ' + e.message;
   }
 });
+
+// ==================== Enterprise Tab ====================
+document.getElementById('ent-set-retention').addEventListener('click', async () => {
+  const collId = document.getElementById('ent-collection-id').value;
+  const ttl = parseInt(document.getElementById('ent-ttl-days').value);
+  if (!collId) return;
+  try {
+    const result = await api('/admin/retention', 'POST', { collection_id: collId, ttl_days: ttl });
+    if (result.success) loadEnterprise();
+  } catch(e) { console.error('Retention error:', e); }
+});
+
+document.getElementById('ent-gen-report').addEventListener('click', async () => {
+  try {
+    const result = await api('/admin/compliance/reports', 'POST', { report_type: 'SOC2', tenant_id: 'default' });
+    if (result.success) loadEnterprise();
+  } catch(e) { console.error('Report error:', e); }
+});
+
+async function loadEnterprise() {
+  try {
+    const policies = await api('/admin/retention/demo-collection');
+    document.getElementById('ent-stat-policies').textContent = policies.policy ? '1 configured' : '0';
+    const budgets = await api('/admin/query-budgets/default');
+    document.getElementById('ent-stat-budgets').textContent = budgets.budget ? '1 configured' : '0';
+    const reports = await api('/admin/compliance/reports/default');
+    document.getElementById('ent-stat-reports').textContent = reports.reports ? reports.reports.length : 0;
+    const container = document.getElementById('ent-results');
+    if (reports.reports && reports.reports.length > 0) {
+      container.innerHTML = reports.reports.map(r =>
+        `<div class="coll-item"><div><div class="name">${r.report_type} Report</div><div class="meta">${r.status} &middot; ${r.generated_at || ''}</div></div></div>`
+      ).join('');
+    } else {
+      container.innerHTML = '<p>No reports yet. Generate one above.</p>';
+    }
+  } catch(e) { console.error('Enterprise load error:', e); }
+}
+
+// ==================== Performance Tab ====================
+document.getElementById('perf-run-benchmark').addEventListener('click', async () => {
+  const container = document.getElementById('perf-results');
+  container.innerHTML = '<p>Running benchmark...</p>';
+  try {
+    const result = await api('/admin/benchmark/run', 'POST');
+    if (result.success) {
+      container.innerHTML = result.results.map(r =>
+        `<div class="coll-item"><div><div class="name">${r.method}</div><div class="meta">Recall: ${(r.avg_recall * 100).toFixed(1)}% &middot; Latency: ${r.avg_latency_ms}ms &middot; Queries: ${r.queries_run}</div></div></div>`
+      ).join('');
+    }
+  } catch(e) { console.error('Benchmark error:', e); }
+});
+
+document.getElementById('perf-flush-cache').addEventListener('click', async () => {
+  try {
+    await api('/admin/cache', 'DELETE');
+    loadPerformance();
+  } catch(e) { console.error('Flush error:', e); }
+});
+
+document.getElementById('perf-refresh').addEventListener('click', loadPerformance);
+
+async function loadPerformance() {
+  try {
+    const cache = await api('/admin/cache/stats');
+    if (cache.success) {
+      document.getElementById('perf-cache-hits').textContent = cache.stats.hits;
+      document.getElementById('perf-cache-ratio').textContent = (cache.stats.hit_ratio * 100).toFixed(1) + '%';
+    }
+    const views = await api('/admin/views');
+    document.getElementById('perf-views').textContent = views.views ? views.views.length : 0;
+    const bench = await api('/admin/benchmark/results');
+    document.getElementById('perf-benchmarks').textContent = bench.benchmarks ? bench.benchmarks.length : 0;
+  } catch(e) { console.error('Perf load error:', e); }
+}
+
+// ==================== Monitoring Tab ====================
+document.getElementById('mon-refresh').addEventListener('click', loadMonitoring);
+
+async function loadMonitoring() {
+  try {
+    const stats = await api('/monitoring/slow-queries/stats');
+    if (stats.success) {
+      document.getElementById('mon-slow-total').textContent = stats.stats.total;
+      document.getElementById('mon-avg-latency').textContent = stats.stats.avg_latency_ms + 'ms';
+      document.getElementById('mon-p95-latency').textContent = stats.stats.p95_latency_ms + 'ms';
+    }
+    const health = await api('/monitoring/health/details');
+    if (health.success) {
+      document.getElementById('mon-cpu').textContent = health.health.cpu_percent + '%';
+    }
+    const slow = await api('/monitoring/slow-queries?limit=20');
+    const container = document.getElementById('mon-results');
+    if (slow.success && slow.slow_queries && slow.slow_queries.length > 0) {
+      container.innerHTML = slow.slow_queries.map(q =>
+        `<div class="coll-item"><div><div class="name">${q.collection_id} / ${q.method}</div><div class="meta">${q.latency_ms}ms &middot; ${q.timestamp}</div></div></div>`
+      ).join('');
+    } else {
+      container.innerHTML = '<p>No slow queries recorded.</p>';
+    }
+  } catch(e) { console.error('Monitoring load error:', e); }
+}
+
+// ==================== Integrations Tab ====================
+document.getElementById('int-enrich-btn').addEventListener('click', async () => {
+  const text = document.getElementById('int-enrich-text').value;
+  if (!text) return;
+  const preview = document.getElementById('int-enrich-result');
+  preview.style.display = 'block';
+  preview.textContent = 'Enriching...';
+  try {
+    const result = await api('/enrich/metadata', 'POST', { text });
+    if (result.success) {
+      preview.textContent = JSON.stringify(result.enriched_metadata, null, 2);
+    }
+  } catch(e) { preview.textContent = 'Error: ' + e.message; }
+});
+
+async function loadIntegrations() {
+  try {
+    const models = await api('/admin/models');
+    if (models.success) {
+      document.getElementById('int-models').textContent = models.models.length;
+      const active = models.models.find(m => m.status === 'active');
+      document.getElementById('int-active-model').textContent = active ? active.model_id : 'None';
+      const container = document.getElementById('int-models-list');
+      container.innerHTML = models.models.map(m =>
+        `<div class="coll-item"><div><div class="name">${m.model_id}</div><div class="meta">${m.provider} &middot; ${m.dimension}d &middot; ${m.status}</div></div></div>`
+      ).join('');
+    }
+  } catch(e) { console.error('Integrations load error:', e); }
+}
 
 // ==================== Init ====================
 document.addEventListener('DOMContentLoaded', () => {
