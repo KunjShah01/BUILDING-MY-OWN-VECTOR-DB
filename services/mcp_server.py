@@ -9,6 +9,10 @@ Tools exposed:
   - ingest_text(text, collection_id, metadata) → store a text as vector
   - get_collection_stats(collection_id) → collection information
   - hybrid_search(hybrid_query, collection_id, k) → cost-based search
+  - add_memory(user_id, text, categories) → store a memory
+  - search_memories(query, user_id, limit) → semantic memory search
+  - chat_with_memories(message, user_id) → memory-augmented chat
+  - consolidate_memories(user_id) → deduplicate memories
 """
 
 from __future__ import annotations
@@ -96,6 +100,58 @@ class MCPServer:
                         "k": {"type": "integer", "description": "Number of results", "default": 10},
                     },
                     "required": ["hybrid_query", "collection_id"],
+                },
+            },
+            {
+                "name": "add_memory",
+                "description": "Store a memory for a user",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "user_id": {"type": "string", "description": "User ID"},
+                        "text": {"type": "string", "description": "Memory text content"},
+                        "categories": {
+                            "type": "array", "items": {"type": "string"},
+                            "description": "Optional category tags",
+                        },
+                    },
+                    "required": ["user_id", "text"],
+                },
+            },
+            {
+                "name": "search_memories",
+                "description": "Semantic search across user memories",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Search query"},
+                        "user_id": {"type": "string", "description": "User ID"},
+                        "limit": {"type": "integer", "description": "Max results (default 10)"},
+                    },
+                    "required": ["query", "user_id"],
+                },
+            },
+            {
+                "name": "chat_with_memories",
+                "description": "Chat with memory-augmented context",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "message": {"type": "string", "description": "User message"},
+                        "user_id": {"type": "string", "description": "User ID"},
+                    },
+                    "required": ["message", "user_id"],
+                },
+            },
+            {
+                "name": "consolidate_memories",
+                "description": "Deduplicate and merge similar memories",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "user_id": {"type": "string", "description": "User ID"},
+                    },
+                    "required": ["user_id"],
                 },
             },
         ]
@@ -191,6 +247,45 @@ class MCPServer:
                     },
                 )
                 return resp.json()
+
+            elif tool_name == "add_memory":
+                if not self._vector_service:
+                    return {"error": "Memory service not available (in-process mode only)"}
+                from services.memory_service import MemoryService
+                svc = MemoryService(self._vector_service.db)
+                return svc.add_memory(
+                    user_id=arguments["user_id"],
+                    text=arguments["text"],
+                    categories=arguments.get("categories"),
+                )
+
+            elif tool_name == "search_memories":
+                if not self._vector_service:
+                    return {"error": "Memory service not available (in-process mode only)"}
+                from services.memory_service import MemoryService
+                svc = MemoryService(self._vector_service.db)
+                return svc.search_memories(
+                    query=arguments["query"],
+                    user_id=arguments["user_id"],
+                    limit=arguments.get("limit", 10),
+                )
+
+            elif tool_name == "chat_with_memories":
+                if not self._vector_service:
+                    return {"error": "Memory service not available (in-process mode only)"}
+                from services.memory_service import MemoryService
+                svc = MemoryService(self._vector_service.db)
+                return svc.chat(
+                    message=arguments["message"],
+                    user_id=arguments["user_id"],
+                )
+
+            elif tool_name == "consolidate_memories":
+                if not self._vector_service:
+                    return {"error": "Memory service not available (in-process mode only)"}
+                from services.memory_service import MemoryService
+                svc = MemoryService(self._vector_service.db)
+                return svc.consolidate(user_id=arguments["user_id"])
 
             else:
                 return {"error": f"Unknown tool: {tool_name}"}

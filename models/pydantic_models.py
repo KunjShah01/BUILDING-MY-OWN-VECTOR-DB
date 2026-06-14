@@ -392,3 +392,72 @@ class OpenAIModelListResponse(BaseModel):
     """List of available models."""
     object: str = "list"
     data: List[OpenAIModel]
+
+
+# ------------------------------------------------------------------ #
+#  Memory models (agentic memory integration)                         #
+# ------------------------------------------------------------------ #
+
+
+class MemoryCreate(BaseModel):
+    text: str = Field(..., min_length=1, description="Memory text content")
+    categories: Optional[List[str]] = Field(None, description="Category tags")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Optional metadata")
+
+
+class MemoryUpdate(BaseModel):
+    text: Optional[str] = Field(None, min_length=1, description="Updated text")
+    categories: Optional[List[str]] = Field(None, description="Updated categories")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Updated metadata")
+
+
+class MemoryResponse(BaseModel):
+    success: bool
+    memory: Optional[Dict[str, Any]] = None
+    message: Optional[str] = None
+
+
+class MemoryListResponse(BaseModel):
+    success: bool
+    memories: List[Dict[str, Any]]
+    total: int
+
+
+class MemorySearchRequest(BaseModel):
+    query: str = Field(..., min_length=1, description="Search query text")
+    user_id: str = Field(..., description="User to search memories for")
+    categories: Optional[List[str]] = Field(None, description="Filter by categories")
+    limit: int = Field(10, ge=1, le=100, description="Max results")
+
+
+class MemorySearchResponse(BaseModel):
+    success: bool
+    results: List[Dict[str, Any]]
+    total: int
+
+
+class MemoryChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, description="User message")
+    user_id: str = Field(..., description="User ID for memory context")
+    history: Optional[List[Dict[str, str]]] = Field(None, description="Chat history")
+    llm_model: Optional[str] = Field("gpt-4o-mini", description="LLM model")
+    max_tokens: Optional[int] = Field(500, ge=1, le=4096)
+    temperature: Optional[float] = Field(0.3, ge=0.0, le=2.0)
+
+
+class MemoryChatResponse(BaseModel):
+    success: bool
+    response: str
+    memories_retrieved: int
+    message: Optional[str] = None
+
+
+class MemoryConsolidateRequest(BaseModel):
+    user_id: str = Field(..., description="User ID to consolidate memories for")
+
+
+class MemoryConsolidateResponse(BaseModel):
+    success: bool
+    merged: int
+    deleted: int
+    message: Optional[str] = None

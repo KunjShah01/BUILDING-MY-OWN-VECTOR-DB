@@ -271,6 +271,39 @@ class ApiTemplate(Base):
         }
 
 
+class Memory(Base):
+    __tablename__ = "memories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    memory_id = Column(String, unique=True, nullable=False, index=True)
+    user_id = Column(String, nullable=False, index=True)
+    text = Column(Text, nullable=False)
+    embedding = Column(PgVectorColumn(384) if PgVectorColumn else ARRAY(Float), nullable=False)
+    categories = Column(ARRAY(String), nullable=False, server_default="{}")
+    meta_data = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index("idx_memories_memory_id", "memory_id"),
+        Index("idx_memories_user_id", "user_id"),
+        Index("idx_memories_user_categories", "user_id", "categories", postgresql_using="gin"),
+    )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "memory_id": self.memory_id,
+            "user_id": self.user_id,
+            "text": self.text,
+            "embedding": self.embedding,
+            "categories": self.categories,
+            "meta_data": self.meta_data,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+
 class FeedbackEntry(Base):
     __tablename__ = "feedback_entries"
 

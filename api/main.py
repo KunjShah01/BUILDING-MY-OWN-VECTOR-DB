@@ -78,6 +78,7 @@ app = FastAPI(
         {"name": "Health", "description": "Health checks"},
         {"name": "Vector Indexer", "description": "Unified HNSW/IVF Vector Indexer API"},
         {"name": "Playground", "description": "Frontend playground support"},
+        {"name": "Memories", "description": "Agentic memory CRUD, search, chat, and consolidation"},
     ]
 )
 
@@ -1329,6 +1330,12 @@ logger.info("Ingestion queue API routes integrated")
 from api.routers.timeseries import router as timeseries_router
 app.include_router(timeseries_router)
 logger.info("Time-series API routes integrated")
+
+# ==================== Memory Routes ====================
+
+from api.routers.memories import router as memories_router
+app.include_router(memories_router, tags=["Memories"])
+logger.info("Memory API routes integrated")
 
 # ==================== GraphQL API ====================
 

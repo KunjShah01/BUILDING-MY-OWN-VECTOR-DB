@@ -5,8 +5,12 @@ build-backend = "setuptools.backends._legacy:_Backend"
 [project]
 name = "vector-db"
 version = "1.0.0"
-description = "A production-ready vector database built from scratch"
+description = "A production-ready vector database built from scratch, with a built-in agent-memory layer and MCP server"
 requires-python = ">=3.11"
+
+[project.scripts]
+# Agent-memory CLI, backed by the vector DB API.
+agentic-memory = "agentic_memory.cli:main"
 
 [tool.ruff]
 line-length = 100
