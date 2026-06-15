@@ -1,8 +1,37 @@
+# Environment
 /.env
+
+# Runtime data
 /indexes/
 /media_storage/
+hnsw_index_data.json
+ivf_index_data.json
+cdc_offsets/
+backups/
+
+# Coverage & reports
+.coverage
+coverage_html/
+
+# Test artifacts
+test_hnsw_index.json
+test_index.json
+test_vamana_data/
+
+# Audit logs
+audit_logs/
+
+# Python
 __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
-.pytest_cache/
+.ruff_cache/
+
+# Benchmark
+.benchmarks/
+
+# IDE & tooling
+.kilo/
+.qodo/
+.claude/

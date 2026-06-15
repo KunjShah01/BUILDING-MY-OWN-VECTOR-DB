@@ -1,18 +1,54 @@
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --color-background: #0a0a1a;
-  --color-foreground: #e2e8f0;
-  --color-muted: #64748b;
-  --color-muted-foreground: #94a3b8;
+  --font-serif: 'Instrument Serif', serif;
+  --color-background: #000000;
+  --color-foreground: #ffffff;
+  --color-muted: #6b7280;
+  --color-muted-foreground: #9ca3af;
   --color-border: rgba(255,255,255,0.06);
   --color-input: rgba(255,255,255,0.1);
   --color-primary: #06b6d4;
   --color-primary-foreground: #fff;
   --color-secondary: rgba(255,255,255,0.03);
-  --color-secondary-foreground: #e2e8f0;
+  --color-secondary-foreground: #ffffff;
   --color-accent: #8b5cf6;
   --color-accent-foreground: #fff;
   --color-card: rgba(255,255,255,0.03);
-  --color-card-foreground: #e2e8f0;
+  --color-card-foreground: #ffffff;
+}
+
+body {
+  font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.liquid-glass {
+  background: rgba(0, 0, 0, 0.4);
+  background-blend-mode: luminosity;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  border: none;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1);
+  position: relative;
+  overflow: hidden;
+}
+.liquid-glass::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.4px;
+  background: linear-gradient(180deg,
+    rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.1) 20%,
+    rgba(255,255,255,0) 40%, rgba(255,255,255,0) 60%,
+    rgba(255,255,255,0.1) 80%, rgba(255,255,255,0.3) 100%);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
 }
