@@ -9,12 +9,12 @@ Target 100M–1B vectors with recall >95% and latency <10ms.
 - ⚪ Multi-level caching hierarchy (L1 RAM → L2 NVMe → L3 S3)
 - ⚪ Adaptive batch sizing and connection pooling for 10K+ QPS
 
-## Phase 11: Multi-Region Active-Active ⚪
+## Phase 11: Multi-Region Active-Active ✅
 Global scale with CRDT-based vector sync across regions.
-- ⚪ CRDT merge logic for concurrent vector writes
-- ⚪ Region-aware query routing (geo-proximity)
-- ⚪ Conflict resolution with vector-clock timestamps
-- ⚪ Cross-region replication monitoring dashboard
+- ✅ CRDT merge logic for concurrent vector writes (`services/crdt_sync.py` — GCounter + LWWElementSet + VectorCRDT + CRDTSyncService)
+- ✅ Region-aware query routing (`services/region_router.py` — haversine distance, health-check fallback, REGIONS env var)
+- ✅ Conflict resolution with vector-clock timestamps (`utils/vector_clock.py` — VectorClock, happens_before, concurrent, VectorClockStore)
+- ✅ Cross-region replication monitoring API (`api/routers/replication.py` — status, regions, sync, conflicts endpoints)
 
 ## Phase 12: Enterprise Hardening ⚪
 Production isolation and compliance for regulated industries.
