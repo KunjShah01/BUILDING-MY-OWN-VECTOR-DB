@@ -30,7 +30,7 @@ Hot-loadable custom index algorithms, encoders, and storage backends.
 - ⚪ Marketplace for community plugins
 - ⚪ Plugin sandbox (resource limits, crash isolation)
 
-## Phase 14: Intelligent Query Mesh ⚪
+## Phase 14: Intelligent Query Mesh ✅
 Self-optimizing query routing and cost governance.
 - ⚪ Query cost predictor (estimated scan count before execution)
 - ⚪ Budget-aware query scheduler with tenant credit pools

@@ -1488,6 +1488,12 @@ from api.routers.ann_indexes import router as ann_indexes_router
 app.include_router(ann_indexes_router)
 logger.info("ANN index management routes integrated at /api/v1/ann/")
 
+# ==================== Query Mesh Routes (Phase 14) ====================
+
+from api.routers.query_mesh import router as query_mesh_router
+app.include_router(query_mesh_router)
+logger.info("Query Mesh API routes integrated at /api/query/*")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
