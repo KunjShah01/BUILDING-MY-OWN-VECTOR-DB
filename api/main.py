@@ -1488,6 +1488,12 @@ from api.routers.ann_indexes import router as ann_indexes_router
 app.include_router(ann_indexes_router)
 logger.info("ANN index management routes integrated at /api/v1/ann/")
 
+# ==================== Plugin Marketplace Routes ====================
+
+from api.routers.plugins import router as plugins_router
+app.include_router(plugins_router)
+logger.info("Plugin marketplace routes integrated at /api/plugins/")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
