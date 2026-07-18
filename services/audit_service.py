@@ -2,7 +2,7 @@
 import json
 import os
 import threading
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -39,7 +39,7 @@ class AuditService:
     ) -> Dict[str, Any]:
         """Append a timestamped audit event to the log file."""
         entry = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
             "tenant_id": tenant_id,
             "user_id": user_id,
             "action": action,

@@ -14,7 +14,7 @@ import shutil
 import threading
 import time
 from dataclasses import dataclass, field, asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -55,7 +55,7 @@ class PITRService:
 
         If source_dirs is None, searches common index locations automatically.
         """
-        timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        timestamp = datetime.now(timezone.utc).replace(tzinfo=None).strftime("%Y%m%dT%H%M%SZ")
         snapshot_id = f"{collection_id}_{timestamp}"
         dest = self.snapshot_root / snapshot_id
         dest.mkdir(parents=True, exist_ok=True)

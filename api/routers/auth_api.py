@@ -14,11 +14,18 @@ router = APIRouter(prefix="/api/keys", tags=["Auth"])
 
 # ---- OIDC provider (configured from environment) ----
 _oidc_config = OIDCConfig(
-    issuer=os.environ.get("OIDC_ISSUER", "https://accounts.example.com"),
-    client_id=os.environ.get("OIDC_CLIENT_ID", "vectordb-client"),
-    client_secret=os.environ.get("OIDC_CLIENT_SECRET", "secret"),
-    redirect_uri=os.environ.get("OIDC_REDIRECT_URI", "http://localhost:8000/api/auth/sso/callback"),
+    issuer=os.environ.get("OIDC_ISSUER", ""),
+    client_id=os.environ.get("OIDC_CLIENT_ID", ""),
+    client_secret=os.environ.get("OIDC_CLIENT_SECRET", ""),
+    redirect_uri=os.environ.get("OIDC_REDIRECT_URI", ""),
 )
+
+# If OIDC is not configured, log a warning but don't fail (features degrade gracefully)
+if not _oidc_config.client_id or not _oidc_config.client_secret:
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "OIDC not fully configured: set OIDC_ISSUER, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET, OIDC_REDIRECT_URI"
+    )
 _oidc_provider = OIDCProvider(_oidc_config)
 
 # Temporary in-memory store for PKCE verifiers keyed by state

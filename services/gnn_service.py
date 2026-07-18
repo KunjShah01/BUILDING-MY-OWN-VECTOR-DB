@@ -180,9 +180,9 @@ def compute_temporal_clusters(
     Returns:
         Dict with trending clusters, growth rates, and burst detection.
     """
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     window_start = now - timedelta(days=window_days)
 
     # Count nodes and edges per time period

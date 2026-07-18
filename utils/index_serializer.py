@@ -1,33 +1,26 @@
-import pickle
 import json
-import numpy as np
 from pathlib import Path
 from typing import Any, Dict
 
 
 class IndexSerializer:
-    @staticmethod
-    def save(data: Dict[str, Any], filepath: str, format: str = "json"):
-        filepath = Path(filepath)
-        if format == "binary":
-            with open(filepath.with_suffix('.bin'), 'wb') as f:
-                pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
-        else:
-            with open(filepath.with_suffix('.json'), 'w') as f:
-                json.dump(data, f)
+    """Safe index serializer using JSON only (no pickle/RCE risk)."""
 
     @staticmethod
-    def load(filepath: str, format: str = "json") -> Dict[str, Any]:
-        filepath = Path(filepath)
-        if format == "binary":
-            with open(filepath.with_suffix('.bin'), 'rb') as f:
-                return pickle.load(f)
-        else:
-            with open(filepath.with_suffix('.json'), 'r') as f:
-                return json.load(f)
+    def save(data: Dict[str, Any], filepath: str) -> None:
+        """Save index data as JSON."""
+        filepath = Path(filepath).with_suffix('.json')
+        with open(filepath, 'w') as f:
+            json.dump(data, f, default=str)
 
     @staticmethod
-    def estimate_size(data: Dict[str, Any], format: str = "json") -> int:
-        if format == "binary":
-            return len(pickle.dumps(data, protocol=pickle.HIGHEST_PROTOCOL))
-        return len(json.dumps(data))
+    def load(filepath: str) -> Dict[str, Any]:
+        """Load index data from JSON."""
+        filepath = Path(filepath).with_suffix('.json')
+        with open(filepath, 'r') as f:
+            return json.load(f)
+
+    @staticmethod
+    def estimate_size(data: Dict[str, Any]) -> int:
+        """Estimate serialized size without writing to disk."""
+        return len(json.dumps(data, default=str).encode('utf-8'))

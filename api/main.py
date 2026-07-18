@@ -93,14 +93,19 @@ app = FastAPI(
     ]
 )
 
-# Configure CORS
-cors_origins = settings.CORS_ORIGINS.split(",") if settings.CORS_ORIGINS != "*" else ["*"]
+# Configure CORS — restrict to allowed origins, never wildcard in production
+cors_origins_str = settings.CORS_ORIGINS
+if cors_origins_str:
+    cors_origins = [o.strip() for o in cors_origins_str.split(",") if o.strip()]
+else:
+    cors_origins = ["http://localhost:3000", "http://localhost:8000", "https://localhost:8000"]
+    logger.info("CORS_ORIGINS not set — defaulting to localhost origins for development")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-API-Key", "X-Tenant-ID"],
 )
 
 # Configure logging
@@ -170,8 +175,8 @@ async def lifespan(app: FastAPI):
         logger.error(f"Error closing cache: {e}")
         
     try:
-        from config.database import get_async_engine
-        engine = get_async_engine()
+        from config.database import get_engine
+        engine = get_engine()
         if engine:
             await engine.dispose()
     except Exception as e:
@@ -871,9 +876,19 @@ async def get_stored_media(content_uri: str = Query(..., description="content_ur
     Serve a file previously stored during image/audio ingest.
 
     Pass the `content_uri` value from vector metadata (e.g. `media_storage/my-catalog/abc.jpg`).
+    Path traversal is blocked by resolve_media_path().
     """
+    # Validate content_uri to prevent basic traversal attempts early
+    if ".." in content_uri.split("/") or ".." in content_uri.split("\\"):
+        raise HTTPException(
+            status_code=400,
+            detail={"success": False, "message": "Invalid content_uri: path traversal detected"}
+        )
     try:
         path = resolve_media_path(content_uri)
+    except ValueError as exc:
+        # Path traversal or invalid path
+        raise HTTPException(status_code=400, detail={"success": False, "message": str(exc)}) from exc
     except Exception as exc:
         raise HTTPException(status_code=400, detail={"success": False, "message": str(exc)}) from exc
     if not path.is_file():

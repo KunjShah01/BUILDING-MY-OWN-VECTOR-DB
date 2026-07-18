@@ -131,13 +131,13 @@ class LTRService:
             # Freshness: how recently was this document created?
             ts = meta.get("created_at") or meta.get("timestamp")
             if ts:
-                from datetime import datetime
+                from datetime import datetime, timezone
                 try:
                     if isinstance(ts, str):
                         dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
                     else:
                         dt = ts
-                    age_days = (datetime.utcnow() - dt).days
+                    age_days = (datetime.now(timezone.utc) - dt).days
                     vec[5] = max(0, 1.0 - age_days / 365.0)
                 except (ValueError, TypeError):
                     vec[5] = 0.5

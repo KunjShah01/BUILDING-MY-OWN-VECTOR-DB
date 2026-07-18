@@ -276,8 +276,9 @@ class MultilevelCache:
     def _serialize(self, value: Any) -> bytes:
         if self.dim is not None and isinstance(value, np.ndarray):
             return value.astype(np.float32).tobytes()
-        import pickle
-        return pickle.dumps(value, protocol=4)
+        # Use JSON for safety (no RCE risk like pickle)
+        import json
+        return json.dumps(value, default=str).encode('utf-8')
 
     def _deserialize(self, data: bytes) -> Any:
         if self.dim is not None:
@@ -285,8 +286,8 @@ class MultilevelCache:
             if arr.shape == (self.dim,):
                 return arr.copy()
         try:
-            import pickle
-            return pickle.loads(data)
+            import json
+            return json.loads(data.decode('utf-8'))
         except Exception:
             return None
 

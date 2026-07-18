@@ -1,4 +1,5 @@
 """Tenant management service with in-memory rate limiting."""
+import logging
 import secrets
 import time
 import uuid
@@ -8,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from config.settings import get_settings
 
-logger = __import__("logging").getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 # Module-level token-bucket store shared across all TenantService instances.
 # This ensures rate-limit state persists across requests.

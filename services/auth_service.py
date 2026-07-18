@@ -1,7 +1,7 @@
 from typing import Optional, Dict, Any, List
 import secrets
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 logger = logging.getLogger(__name__)
@@ -73,7 +73,7 @@ class APIKeyManager:
         if not record:
             return {"success": False, "message": "Invalid API key"}
 
-        if record.expires_at and record.expires_at < datetime.utcnow():
+        if record.expires_at and record.expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
             return {"success": False, "message": "API key expired"}
 
         if record.is_active is False:

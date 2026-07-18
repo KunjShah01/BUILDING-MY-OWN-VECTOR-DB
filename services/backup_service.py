@@ -19,7 +19,7 @@ import os
 import shutil
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -75,7 +75,7 @@ class BackupService:
         Returns:
             Snapshot metadata.
         """
-        timestamp = datetime.utcnow().isoformat()
+        timestamp = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
         snapshot_path = os.path.join(
             self.snapshot_dir,
             f"{collection_id}_{method}_{timestamp.replace(':', '-')}",
@@ -169,7 +169,7 @@ class BackupService:
         if not os.path.exists(wal_path):
             return {"success": False, "message": "WAL file not found"}
 
-        timestamp = datetime.utcnow().isoformat()
+        timestamp = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
         archive_name = f"{collection_id}_{timestamp.replace(':', '-')}.wal"
         archive_path = os.path.join(self.wal_archive_dir, archive_name)
 
@@ -200,7 +200,7 @@ class BackupService:
                     "name": fname,
                     "path": fpath,
                     "size_bytes": os.path.getsize(fpath),
-                    "modified": datetime.fromtimestamp(os.path.getmtime(fpath)).isoformat(),
+                    "modified": datetime.fromtimestamp(os.path.getmtime(fpath), tz=timezone.utc).isoformat(),
                 })
         archives.sort(key=lambda x: x["modified"], reverse=True)
         return archives

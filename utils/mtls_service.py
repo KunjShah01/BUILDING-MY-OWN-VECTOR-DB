@@ -128,6 +128,7 @@ def generate_dev_certificates(config: MTLSConfig) -> bool:
         from cryptography.hazmat.primitives import hashes, serialization
         from cryptography.hazmat.primitives.asymmetric import rsa
         import datetime
+        from datetime import timezone
 
         # Generate CA key and cert
         ca_key = rsa.generate_private_key(
@@ -144,8 +145,8 @@ def generate_dev_certificates(config: MTLSConfig) -> bool:
             .issuer_name(issuer)
             .public_key(ca_key.public_key())
             .serial_number(x509.random_serial_number())
-            .not_valid_before(datetime.datetime.utcnow())
-            .not_valid_after(datetime.datetime.utcnow() + datetime.timedelta(days=config.validity_days))
+            .not_valid_before(datetime.datetime.now(timezone.utc))
+            .not_valid_after(datetime.datetime.now(timezone.utc) + datetime.timedelta(days=config.validity_days))
             .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
             .sign(ca_key, hashes.SHA256())
         )
@@ -171,8 +172,8 @@ def generate_dev_certificates(config: MTLSConfig) -> bool:
             .issuer_name(ca_subject)
             .public_key(node_key.public_key())
             .serial_number(x509.random_serial_number())
-            .not_valid_before(datetime.datetime.utcnow())
-            .not_valid_after(datetime.datetime.utcnow() + datetime.timedelta(days=config.validity_days))
+            .not_valid_before(datetime.datetime.now(timezone.utc))
+            .not_valid_after(datetime.datetime.now(timezone.utc) + datetime.timedelta(days=config.validity_days))
             .add_extension(x509.SubjectAlternativeName([x509.DNSName("localhost")]), critical=False)
             .sign(ca_key, hashes.SHA256())
         )

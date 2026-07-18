@@ -6,12 +6,18 @@ Comprehensive test script for new endpoints:
 4. Per-collection IVF save/load/rebuild
 """
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import httpx
 
+import os
+
 BASE = "http://localhost:8000"
-API_KEY = "your-api-key-here"
+# Use env var for API key — never hardcode secrets in test files
+API_KEY = os.environ.get("VECTOR_DB_API_KEY", os.environ.get("API_KEY", ""))
+if not API_KEY:
+    print("WARNING: VECTOR_DB_API_KEY not set. Set it via environment variable.")
+    API_KEY = "test-key-change-me"
 client = httpx.Client(base_url=BASE, timeout=30, headers={"X-API-Key": API_KEY}, follow_redirects=True)
 
 passed = 0
@@ -144,7 +150,7 @@ client.delete("/collections/gql-test")
 # ==================== 2. TIME-SERIES ENDPOINTS ====================
 print("\n=== 2. TIME-SERIES VECTORS ===")
 
-base_ts = datetime.utcnow()
+base_ts = datetime.now(timezone.utc)
 for i in range(5):
     ts = (base_ts + timedelta(hours=i)).isoformat()
     vec = [float(i) * 0.1] * 128

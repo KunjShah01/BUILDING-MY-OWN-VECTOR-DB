@@ -5,7 +5,7 @@ import logging
 import os
 import time
 import shutil
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from celery_app import celery_app
 from config.settings import get_settings
 
@@ -24,7 +24,7 @@ def health_check():
         from services.cache_service import cache_manager
         
         health_status = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "database": None,
             "cache": None,
             "disk": None
@@ -98,7 +98,7 @@ def cleanup_old_logs():
         
         deleted_count = 0
         total_freed = 0
-        cutoff_date = datetime.now() - timedelta(days=7)  # Keep 7 days
+        cutoff_date = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=7)  # Keep 7 days
         
         for filename in os.listdir(log_dir):
             if filename.endswith('.log'):
@@ -142,7 +142,7 @@ def backup_indexes():
         backup_dir = settings.backup_storage_path
         os.makedirs(backup_dir, exist_ok=True)
         
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         backup_results = {}
         
         async def _backup():
@@ -219,7 +219,7 @@ def update_statistics():
         from services.cache_service import cache_manager
         
         stats = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "vectors": {},
             "indexes": {},
             "system": {}

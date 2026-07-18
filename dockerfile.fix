@@ -1,0 +1,2 @@
+FROM buildingmyownvectordb-vector_api_1:latest
+RUN pip install --no-cache-dir cachetools celery

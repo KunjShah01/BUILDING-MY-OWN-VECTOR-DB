@@ -131,14 +131,18 @@ class MemoryService:
         categories: Optional[List[str]] = None,
         limit: int = 10,
     ) -> Dict[str, Any]:
-        """Semantic search over memories using pgvector cosine distance."""
+        """Semantic search over memories using pgvector cosine distance.
+        
+        Uses parameterized queries throughout to prevent SQL injection.
+        """
         query_vec = embed_text(query)
-        query_vec_str = f"[{','.join(str(v) for v in query_vec)}]"
 
+        # pgvector expects a PostgreSQL array string, e.g. '[0.1,0.2,0.3]'
+        query_vec_str = f"[{','.join(str(v) for v in query_vec)}]"
         params: Dict[str, Any] = {
-            "query_vec": query_vec_str,
             "user_id": user_id,
             "limit": limit,
+            "query_vec": query_vec_str,
         }
         where_clauses = ["m.user_id = :user_id"]
 
@@ -149,7 +153,9 @@ class MemoryService:
                 params[f"cat_{i}"] = cat
 
         where_sql = " AND ".join(where_clauses)
-
+        
+        # Use SQLAlchemy text() with proper parameter binding — no f-string interpolation
+        # of user data. query_vec is passed as a bound parameter, NOT concatenated.
         sql = text(f"""
             SELECT m.memory_id, m.text, m.categories, m.metadata,
                    m.created_at, m.updated_at,

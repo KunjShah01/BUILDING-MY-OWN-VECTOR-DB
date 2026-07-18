@@ -9,6 +9,7 @@ Audio: librosa MFCC mean-pooled to 128-dim (CPU-friendly, no GPU model).
 
 from __future__ import annotations
 
+import asyncio
 import io
 import logging
 from pathlib import Path
@@ -19,6 +20,46 @@ import numpy as np
 from config.settings import get_settings
 
 logger = logging.getLogger(__name__)
+
+# Thread pool for running sync embedding operations without blocking the event loop
+_embedding_executor = None
+
+def _get_executor():
+    """Get or create a thread pool executor for embedding operations."""
+    global _embedding_executor
+    if _embedding_executor is None:
+        from concurrent.futures import ThreadPoolExecutor
+        _embedding_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="embed")
+    return _embedding_executor
+
+
+async def embed_text_async(text: str, model_name: Optional[str] = None) -> List[float]:
+    """Async version of embed_text — runs in a thread pool to avoid blocking the event loop."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(_get_executor(), embed_text, text, model_name)
+
+
+async def embed_texts_async(texts: List[str], model_name: Optional[str] = None) -> List[List[float]]:
+    """Async version of embed_texts — runs in a thread pool."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(_get_executor(), embed_texts, texts, model_name)
+
+
+async def embed_image_async(path_or_bytes: PathOrBytes, model_name: Optional[str] = None) -> List[float]:
+    """Async version of embed_image — runs in a thread pool."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(_get_executor(), embed_image, path_or_bytes, model_name)
+
+
+async def embed_audio_async(
+    path_or_bytes: PathOrBytes,
+    model_name: Optional[str] = None,
+    *,
+    chunk_seconds: Optional[float] = None,
+) -> Union[List[float], List[List[float]]]:
+    """Async version of embed_audio — runs in a thread pool."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(_get_executor(), embed_audio, path_or_bytes, model_name, chunk_seconds=chunk_seconds)
 
 PathOrBytes = Union[str, Path, bytes, io.BytesIO]
 

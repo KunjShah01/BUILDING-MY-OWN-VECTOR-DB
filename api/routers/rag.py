@@ -23,10 +23,20 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
+from pydantic import Field
 from sqlalchemy.orm import Session
 
 from config.database import get_db
 from services.rag_service import RAGService
+# Import size limits from the canonical source (models/pydantic_models.py)
+from models.pydantic_models import (
+    _MAX_TEXT_INGEST_LEN,
+    _MAX_RAG_QUERY_LEN,
+)
+
+# Additional limits for router-specific Body() parameters
+_MAX_URL_LEN = 2_048             # URLs
+_MAX_SOURCE_LEN = 256            # Source names
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["RAG"])
@@ -307,7 +317,7 @@ async def ingest_pdf(
 @router.post("/collections/{collection_id}/ingest/url")
 async def ingest_url(
     collection_id: str,
-    url: str = Body(..., embed=True),
+    url: str = Body(..., embed=True, max_length=_MAX_URL_LEN),
     chunk_strategy: str = Body("recursive"),
     chunk_size: int = Body(500),
     chunk_overlap: int = Body(50),
@@ -342,7 +352,7 @@ async def ingest_url(
 @router.post("/collections/{collection_id}/ingest/text", operation_id="rag_ingest_text")
 async def ingest_text(
     collection_id: str,
-    text: str = Body(...),
+    text: str = Body(..., max_length=_MAX_TEXT_INGEST_LEN),
     source: str = Body("manual"),
     chunk_strategy: str = Body("recursive"),
     chunk_size: int = Body(500),
@@ -441,7 +451,7 @@ async def ingest_file(
 @router.post("/collections/{collection_id}/query")
 async def rag_query(
     collection_id: str,
-    query: str = Body(...),
+    query: str = Body(..., max_length=_MAX_RAG_QUERY_LEN),
     k: int = Body(5, ge=1, le=50),
     model: str = Body("gpt-4o-mini"),
     max_tokens: int = Body(800, ge=50, le=4096),
@@ -510,7 +520,7 @@ async def rag_query(
 @router.post("/collections/{collection_id}/query/stream")
 async def rag_query_stream(
     collection_id: str,
-    query: str = Body(...),
+    query: str = Body(..., max_length=_MAX_RAG_QUERY_LEN),
     k: int = Body(5),
     model: str = Body("claude-3-5-haiku-20241022"),
     max_tokens: int = Body(800),

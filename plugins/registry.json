@@ -1,0 +1,13 @@
+{
+  "brute_force": {
+    "1.0.0": {
+      "name": "brute_force",
+      "version": "1.0.0",
+      "plugin_type": "index",
+      "entry_point": "sdk.plugin_sdk.example_plugin.BruteForcePlugin",
+      "description": "Exact nearest-neighbour search via exhaustive scan.",
+      "author": "VectorDB",
+      "requires": []
+    }
+  }
+}

@@ -11,10 +11,11 @@ import os
 import time
 from collections import deque
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Deque, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import text as sa_text
 from sqlalchemy.orm import Session
 
 from config.database import get_db
@@ -36,7 +37,7 @@ def record_slow_query(path: str, duration_ms: float, tenant_id: Optional[str] = 
             "path": path,
             "duration_ms": round(duration_ms, 2),
             "tenant_id": tenant_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
             "estimated_cost_usd": round(duration_ms * 0.00000001, 10),
         })
 
@@ -49,7 +50,7 @@ def cluster_overview(db: Session = Depends(get_db)):
     try:
         from models.schema import Vector
         total_vectors = db.execute(
-            __import__("sqlalchemy", fromlist=["text"]).text("SELECT COUNT(*) FROM vectors")
+            sa_text("SELECT COUNT(*) FROM vectors")
         ).scalar() or 0
     except Exception:
         total_vectors = 0
@@ -57,9 +58,7 @@ def cluster_overview(db: Session = Depends(get_db)):
     try:
         from models.schema import Collection
         active_tenants_row = db.execute(
-            __import__("sqlalchemy", fromlist=["text"]).text(
-                "SELECT COUNT(DISTINCT tenant_id) FROM collections"
-            )
+            sa_text("SELECT COUNT(DISTINCT tenant_id) FROM collections")
         ).scalar()
         active_tenants = active_tenants_row or 0
     except Exception:
@@ -103,7 +102,7 @@ def slow_query_analyzer():
 def cost_explorer(
     tenant_id: str = Query(...),
     month: str = Query(
-        default=datetime.utcnow().strftime("%Y-%m"),
+        default=datetime.now(timezone.utc).replace(tzinfo=None).strftime("%Y-%m"),
         description="Month in YYYY-MM format",
     ),
 ):
@@ -135,7 +134,7 @@ def list_all_collections(db: Session = Depends(get_db)):
     """Return all collections across all tenants with sizes."""
     try:
         rows = db.execute(
-            __import__("sqlalchemy", fromlist=["text"]).text(
+            sa_text(
                 """
                 SELECT c.collection_id, c.name, c.tenant_id, c.modality,
                        COUNT(v.id) as vector_count

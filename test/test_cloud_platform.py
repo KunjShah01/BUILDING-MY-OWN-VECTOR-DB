@@ -11,7 +11,7 @@ import os
 import shutil
 import tempfile
 from dataclasses import asdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -63,8 +63,8 @@ def test_compute_bill(billing_svc):
     billing_svc.record_usage("t1", "insert", 500_000, dimensions=128)
     billing_svc.record_usage("t1", "index_build", 10_000, dimensions=128)
 
-    start = datetime.utcnow() - timedelta(hours=1)
-    end = datetime.utcnow() + timedelta(hours=1)
+    start = datetime.now(timezone.utc) - timedelta(hours=1)
+    end = datetime.now(timezone.utc) + timedelta(hours=1)
     bill = billing_svc.compute_bill("t1", start, end)
 
     # search: 1_000_000 * 0.000001 = $1.00
@@ -81,7 +81,7 @@ def test_compute_bill(billing_svc):
 
 def test_export_csv(billing_svc):
     billing_svc.record_usage("csv-tenant", "search", 10)
-    month = datetime.utcnow().strftime("%Y-%m")
+    month = datetime.now(timezone.utc).strftime("%Y-%m")
     csv_data = billing_svc.export_csv("csv-tenant", month)
     assert "tenant_id" in csv_data
     assert "csv-tenant" in csv_data

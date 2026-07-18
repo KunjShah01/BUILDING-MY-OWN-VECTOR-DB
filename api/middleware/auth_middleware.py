@@ -20,11 +20,17 @@ PUBLIC_PATHS = {
 
 
 def get_api_key(request: Request):
+    """Extract API key from headers only.
+    
+    Query-param API keys are intentionally NOT supported because they:
+    - Leak in server logs, proxy logs, and Referer headers
+    - Get stored in browser history
+    - Are transmitted in bookmarks
+    Use X-API-Key header or Authorization: Bearer <key> instead.
+    """
     key = request.headers.get("X-API-Key") or request.headers.get(
         "Authorization", ""
     ).replace("Bearer ", "")
-    if not key:
-        key = request.query_params.get("api_key")
     return key if key else None
 
 
@@ -41,7 +47,7 @@ async def auth_middleware(request: Request, call_next: Callable):
             status_code=401,
             content={
                 "success": False,
-                "message": "API key required. Provide via X-API-Key header or ?api_key=...",
+                "message": "API key required. Provide via X-API-Key header or Authorization: Bearer <key>",
             },
         )
 

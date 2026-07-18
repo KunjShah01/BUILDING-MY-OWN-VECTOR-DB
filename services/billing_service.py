@@ -8,7 +8,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field, asdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -28,7 +28,7 @@ class UsageRecord:
     operation: str            # search | insert | index_build
     count: int
     vector_dimensions: int
-    timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).replace(tzinfo=None).isoformat())
 
 
 @dataclass
@@ -176,7 +176,7 @@ class BillingService:
 
     def get_usage_summary(self, tenant_id: str, days: int = 30) -> Dict[str, Any]:
         """Return aggregated counts by operation for the last N days."""
-        end = datetime.utcnow()
+        end = datetime.now(timezone.utc).replace(tzinfo=None)
         start = end - timedelta(days=days)
         events = self._load_events(tenant_id, start, end)
 

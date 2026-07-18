@@ -4,10 +4,33 @@ import hashlib
 import os
 import time
 import logging
+from typing import Callable
+from functools import wraps
+
+# Retry configuration for circuit-breaker pattern
+_MAX_RETRIES = 3
+_RETRY_DELAY = 0.1  # 100ms base delay, doubles each retry
 
 logger = logging.getLogger(__name__)
-
 _redis_client = None
+
+
+def _with_retry(operation_name: str, fn, *args, **kwargs):
+    """Execute fn with retry + exponential backoff."""
+    last_exc = None
+    delay = _RETRY_DELAY
+    for attempt in range(_MAX_RETRIES):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            last_exc = e
+            if attempt < _MAX_RETRIES - 1:
+                logger.debug("%s attempt %d failed: %s — retrying in %.0fms",
+                             operation_name, attempt + 1, e, delay * 1000)
+                time.sleep(delay)
+                delay *= 2
+    logger.warning("%s failed after %d retries: %s", operation_name, _MAX_RETRIES, last_exc)
+    return None
 
 
 def _get_redis():
@@ -58,10 +81,8 @@ class CacheService:
         if filters:
             parts.append(str(hash(json.dumps(filters, sort_keys=True))))
         key = _make_key("search", *parts)
-        try:
-            self._client.setex(key, ttl, json.dumps(results))
-        except Exception as e:
-            logger.debug(f"Cache set failed: {e}")
+        _with_retry("cache_search",
+                     lambda: self._client.setex(key, ttl, json.dumps(results)))
 
     def get_cached_search(self, query_vector: list, k: int,
                           collection_id: str,
@@ -73,24 +94,11 @@ class CacheService:
         if filters:
             parts.append(str(hash(json.dumps(filters, sort_keys=True))))
         key = _make_key("search", *parts)
-        try:
-            data = self._client.get(key)
-            if data:
-                return json.loads(data)
-        except Exception:
-            pass
+        data = _with_retry("cache_get",
+                     lambda: self._client.get(key))
+        if data:
+            return json.loads(data)
         return None
-
-    def cache_embedding(self, text: str, model: str,
-                        vector: List[float], ttl: int = 3600):
-        """Cache embedding vectors."""
-        if not self.available:
-            return
-        key = _make_key("embed", model, hashlib.md5(text.encode()).hexdigest())
-        try:
-            self._client.setex(key, ttl, json.dumps(vector))
-        except Exception as e:
-            logger.debug(f"Cache set failed: {e}")
 
     def get_cached_embedding(self, text: str, model: str) -> Optional[List[float]]:
         if not self.available:
@@ -137,13 +145,13 @@ class CacheService:
 # =========================================================================
 # Async Cache Manager (Ported from ANN Search Engine)
 # =========================================================================
-import pickle
 from typing import Callable
 from functools import wraps
 
 class AsyncCacheManager:
     """
-    Redis cache manager with serialization support (Async)
+    Redis cache manager with JSON serialization (Async)
+    Uses JSON instead of pickle to prevent RCE vulnerabilities.
     """
     
     def __init__(self):
@@ -189,24 +197,32 @@ class AsyncCacheManager:
         try:
             data = await self._redis.get(key)
             if data:
-                return pickle.loads(data)
+                return json.loads(data)
             return None
         except Exception as e:
             logger.error(f"Async cache get error: {e}")
             return None
     
     async def set(self, key: str, value: Any, ttl: int = None) -> bool:
-        """Set value in cache"""
+        """Set value in cache with JSON serialization"""
         if not self._enabled or not self._redis:
             return False
         
-        try:
-            serialized = pickle.dumps(value)
-            await self._redis.setex(key, ttl or self._default_ttl, serialized)
-            return True
-        except Exception as e:
-            logger.error(f"Async cache set error: {e}")
-            return False
+        last_exc = None
+        delay = _RETRY_DELAY
+        for attempt in range(_MAX_RETRIES):
+            try:
+                serialized = json.dumps(value, default=str)
+                await self._redis.setex(key, ttl or self._default_ttl, serialized)
+                return True
+            except Exception as e:
+                last_exc = e
+                if attempt < _MAX_RETRIES - 1:
+                    logger.debug("Async cache set attempt %d failed: %s — retrying", attempt + 1, e)
+                    await asyncio.sleep(delay)
+                    delay *= 2
+        logger.error(f"Async cache set error after retries: {last_exc}")
+        return False
     
     async def delete(self, key: str) -> bool:
         """Delete value from cache"""

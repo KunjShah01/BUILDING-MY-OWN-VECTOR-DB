@@ -22,13 +22,14 @@ class TestAuthMiddleware:
         result = get_api_key(mock_request)
         assert result == "bearer-key-456"
 
-    def test_get_api_key_from_query(self):
+    def test_get_api_key_from_query_rejected(self):
+        """Query-param API keys are intentionally NOT supported (security: URL logging, Referer leaks)."""
         from api.middleware.auth_middleware import get_api_key
         mock_request = MagicMock(spec=Request)
         mock_request.headers = {}
         mock_request.query_params = {"api_key": "query-key-789"}
         result = get_api_key(mock_request)
-        assert result == "query-key-789"
+        assert result is None  # Query-param auth is intentionally disabled
 
     def test_get_api_key_missing(self):
         from api.middleware.auth_middleware import get_api_key

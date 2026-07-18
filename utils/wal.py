@@ -17,7 +17,8 @@ class WriteAheadLog:
         max_rotated_keep: int = 5,
     ):
         self.collection_id = collection_id
-        self.log_dir = log_dir
+        # Use per-collection subdirectory to prevent file-lock contention
+        self.log_dir = os.path.join(log_dir, collection_id)
         self.max_size = max_size_mb * 1024 * 1024
         self.flush_interval = flush_interval
         self.max_rotated_keep = max_rotated_keep

@@ -3,7 +3,7 @@
 Provides endpoints for storing and querying time-series vectors
 (indexed by timestamp, grouped into logical series).
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -34,7 +34,7 @@ async def insert_timeseries_vector(
     from models.vector_model import VectorModel
 
     model = VectorModel(db)
-    ts = timestamp or datetime.utcnow()
+    ts = timestamp or datetime.now(timezone.utc).replace(tzinfo=None)
     try:
         vec = model.create_vector(
             vector_data=vector,

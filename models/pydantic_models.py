@@ -151,10 +151,10 @@ class HealthResponse(BaseModel):
 
 class ApiTemplateCreate(BaseModel):
     """Model for API playground templates"""
-    name: str = Field(..., description="Template name")
-    description: Optional[str] = Field(None, description="Optional description")
-    method: str = Field(..., description="HTTP method", example="POST")
-    path: str = Field(..., description="API path", example="/search")
+    name: str = Field(..., max_length=256, description="Template name")
+    description: Optional[str] = Field(None, max_length=1_000, description="Optional description")
+    method: str = Field(..., max_length=16, description="HTTP method", example="POST")
+    path: str = Field(..., max_length=512, description="API path", example="/search")
     payload: Dict[str, Any] = Field(..., description="JSON payload")
 
 
@@ -172,10 +172,10 @@ class ApiTemplateListResponse(BaseModel):
 
 class FeedbackCreate(BaseModel):
     """Model for feedback submission"""
-    name: Optional[str] = Field(None, description="User name")
-    email: Optional[str] = Field(None, description="User email")
+    name: Optional[str] = Field(None, max_length=256, description="User name")
+    email: Optional[str] = Field(None, max_length=256, description="User email")
     rating: Optional[int] = Field(None, description="Rating 1-5", ge=1, le=5)
-    message: str = Field(..., description="Feedback message")
+    message: str = Field(..., max_length=10_000, description="Feedback message")
 
 
 class FeedbackResponse(BaseModel):
@@ -239,16 +239,27 @@ class CollectionResponse(BaseModel):
     count: Optional[int] = None
 
 
+# Maximum text input lengths to prevent thread pool blocking
+_MAX_TEXT_INGEST_LEN = 100_000   # 100 KB for ingested text
+_MAX_SEARCH_QUERY_LEN = 500      # Search queries are always short
+_MAX_MEMORY_TEXT_LEN = 10_000    # Memories are brief text snippets
+_MAX_RAG_QUERY_LEN = 5_000       # RAG questions can be longer
+_MAX_LLM_MESSAGE_LEN = 50_000    # LLM message content
+_MAX_DOC_ID_LEN = 256            # Document/source IDs
+_MAX_GROUP_ID_LEN = 256
+_MAX_CATEGORY_LEN = 100
+
+
 class TextIngestRequest(BaseModel):
     """Ingest raw text into a collection (auto-embedded)."""
-    text: str = Field(..., description="Text to embed and store", min_length=1)
+    text: str = Field(..., description="Text to embed and store", min_length=1, max_length=_MAX_TEXT_INGEST_LEN)
     metadata: Optional[Dict[str, Any]] = Field(None, description="Extra metadata")
     vector_id: Optional[str] = Field(None, description="Optional custom vector id")
 
 
 class TextSearchRequest(BaseModel):
     """Natural-language search within a collection."""
-    query: str = Field(..., description="Search query text", min_length=1)
+    query: str = Field(..., description="Search query text", min_length=1, max_length=_MAX_SEARCH_QUERY_LEN)
     k: int = Field(5, description="Number of results", ge=1, le=100)
     method: SearchMethod = Field(
         SearchMethod.BRUTE,
@@ -284,7 +295,7 @@ class MediaIngestResponse(BaseModel):
 
 class RAGQueryRequest(BaseModel):
     """RAG query request."""
-    query: str = Field(..., description="Natural language question")
+    query: str = Field(..., description="Natural language question", max_length=_MAX_RAG_QUERY_LEN)
     collection_id: str = Field(..., description="Collection to search")
     k: int = Field(5, description="Number of chunks to retrieve", ge=1, le=50)
     model: str = Field("gpt-4o-mini", description="LLM model name")
@@ -343,7 +354,7 @@ class OpenAIEmbeddingResponse(BaseModel):
 class OpenAIChatMessage(BaseModel):
     """Chat message matching OpenAI's format."""
     role: str = Field(..., description="system, user, or assistant")
-    content: str = Field(..., description="Message content")
+    content: str = Field(..., description="Message content", max_length=_MAX_LLM_MESSAGE_LEN)
 
 
 class OpenAIChatRequest(BaseModel):
@@ -401,13 +412,13 @@ class OpenAIModelListResponse(BaseModel):
 
 
 class MemoryCreate(BaseModel):
-    text: str = Field(..., min_length=1, description="Memory text content")
+    text: str = Field(..., min_length=1, max_length=_MAX_MEMORY_TEXT_LEN, description="Memory text content")
     categories: Optional[List[str]] = Field(None, description="Category tags")
     metadata: Optional[Dict[str, Any]] = Field(None, description="Optional metadata")
 
 
 class MemoryUpdate(BaseModel):
-    text: Optional[str] = Field(None, min_length=1, description="Updated text")
+    text: Optional[str] = Field(None, min_length=1, max_length=_MAX_MEMORY_TEXT_LEN, description="Updated text")
     categories: Optional[List[str]] = Field(None, description="Updated categories")
     metadata: Optional[Dict[str, Any]] = Field(None, description="Updated metadata")
 
@@ -425,7 +436,7 @@ class MemoryListResponse(BaseModel):
 
 
 class MemorySearchRequest(BaseModel):
-    query: str = Field(..., min_length=1, description="Search query text")
+    query: str = Field(..., min_length=1, max_length=_MAX_SEARCH_QUERY_LEN, description="Search query text")
     categories: Optional[List[str]] = Field(None, description="Filter by categories")
     limit: int = Field(10, ge=1, le=100, description="Max results")
 
@@ -437,7 +448,7 @@ class MemorySearchResponse(BaseModel):
 
 
 class MemoryChatRequest(BaseModel):
-    message: str = Field(..., min_length=1, description="User message")
+    message: str = Field(..., min_length=1, max_length=_MAX_RAG_QUERY_LEN, description="User message")
     history: Optional[List[Dict[str, str]]] = Field(None, description="Chat history")
     llm_model: Optional[str] = Field("gpt-4o-mini", description="LLM model")
     max_tokens: Optional[int] = Field(500, ge=1, le=4096)
@@ -481,8 +492,8 @@ class MemoryBatchDeleteResponse(BaseModel):
 
 
 class SparseVectorCreate(BaseModel):
-    doc_id: str
-    text: str
+    doc_id: str = Field(..., max_length=_MAX_DOC_ID_LEN)
+    text: str = Field(..., max_length=_MAX_TEXT_INGEST_LEN)
     tokens: Optional[Dict[str, float]] = None
 
 class SparseVectorResponse(BaseModel):
@@ -491,7 +502,7 @@ class SparseVectorResponse(BaseModel):
     message: Optional[str] = None
 
 class SparseSearchRequest(BaseModel):
-    query: str
+    query: str = Field(..., max_length=_MAX_SEARCH_QUERY_LEN)
     k: int = 10
     method: str = "sparse"
 
@@ -502,8 +513,8 @@ class SparseSearchResponse(BaseModel):
     search_time_ms: float = 0.0
 
 class MultiVectorCreate(BaseModel):
-    group_id: str
-    text: str
+    group_id: str = Field(..., max_length=_MAX_GROUP_ID_LEN)
+    text: str = Field(..., max_length=_MAX_TEXT_INGEST_LEN)
     vectors: Optional[List[List[float]]] = None
 
 class MultiVectorResponse(BaseModel):
@@ -512,7 +523,7 @@ class MultiVectorResponse(BaseModel):
     message: Optional[str] = None
 
 class MultiVectorSearchRequest(BaseModel):
-    query: str
+    query: str = Field(..., max_length=_MAX_SEARCH_QUERY_LEN)
     k: int = 10
 
 class MultiVectorSearchResponse(BaseModel):
@@ -522,7 +533,7 @@ class MultiVectorSearchResponse(BaseModel):
     search_time_ms: float = 0.0
 
 class NLQueryRequest(BaseModel):
-    query: str
+    query: str = Field(..., max_length=_MAX_RAG_QUERY_LEN)
     limit: int = 10
 
 class NLQueryResponse(BaseModel):

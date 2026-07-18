@@ -41,7 +41,7 @@ def _init_audit_log(log_dir: str = "audit_logs"):
     """Initialize the audit log directory."""
     global _audit_file
     os.makedirs(log_dir, exist_ok=True)
-    date_str = datetime.utcnow().strftime("%Y%m%d")
+    date_str = datetime.now(timezone.utc).replace(tzinfo=None).strftime("%Y%m%d")
     _audit_file = os.path.join(log_dir, f"audit_{date_str}.log")
 
 
@@ -110,7 +110,7 @@ def log_event(
         details: Additional structured details.
         payload: Original request/response data (will be hashed).
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     entry: Dict[str, Any] = {
         "timestamp": now.isoformat() + "Z",
         "timestamp_ns": time.time_ns(),

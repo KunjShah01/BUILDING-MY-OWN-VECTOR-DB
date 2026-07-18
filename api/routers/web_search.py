@@ -570,11 +570,10 @@ async def ingest_feed(
             db.close()
 
     if run_in_background:
-        background_tasks.add_task(asyncio.run, _run())
+        background_tasks.add_task(_run)
         return {"success": True, "status": "feed_ingest_started",
                 "job_id": job_id, "feed_url": feed_url}
-    import asyncio as _async
-    _async.run(_run())
+    _run()
     return {"success": True, "status": "completed",
             "job_id": job_id, **_crawl_jobs[job_id]}
 

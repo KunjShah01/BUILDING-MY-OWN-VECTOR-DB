@@ -7,10 +7,15 @@ import httpx
 from typing import List, Dict, Any, Optional
 import json
 
+_DEFAULT_TIMEOUT = 30.0  # seconds
+
 class VectorDBClient:
-    """Async Python SDK wrapper for the Vector DB API."""
+    """Async Python SDK wrapper for the Vector DB API.
     
-    def __init__(self, base_url: str = "http://localhost:8000", api_key: Optional[str] = None, tenant_id: Optional[str] = None):
+    Includes request timeout to prevent cascading failures.
+    """
+    
+    def __init__(self, base_url: str = "http://localhost:8000", api_key: Optional[str] = None, tenant_id: Optional[str] = None, timeout: float = _DEFAULT_TIMEOUT):
         self.base_url = base_url.rstrip("/")
         headers = {}
         if api_key:
@@ -18,7 +23,11 @@ class VectorDBClient:
         if tenant_id:
             headers["X-Tenant-ID"] = tenant_id
             
-        self.client = httpx.AsyncClient(base_url=self.base_url, headers=headers)
+        self.client = httpx.AsyncClient(
+            base_url=self.base_url,
+            headers=headers,
+            timeout=httpx.Timeout(timeout, connect=10.0, read=timeout, write=timeout, pool=10.0),
+        )
         
     async def close(self):
         """Close the underlying HTTP client."""
